@@ -1,4 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '@/stores/authStore';
+import { useCandidateStore } from '@/stores/candidateStore';
 
 const navItems = [
   { path: '/candidate', label: '首页' },
@@ -10,6 +12,14 @@ const navItems = [
 export default function CandidateLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const logout = useAuthStore((s) => s.logout);
+  const reset = useCandidateStore((s) => s.reset);
+
+  const handleLogout = () => {
+    reset();
+    logout();
+    navigate('/');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -22,6 +32,12 @@ export default function CandidateLayout() {
           >
             AI面试官
           </h1>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-gray-500 hover:text-red-500 transition-colors"
+          >
+            退出
+          </button>
         </div>
       </header>
 

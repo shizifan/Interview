@@ -1,11 +1,14 @@
-import json
-
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
+from app.core.deps import get_db, get_current_hr_user
+from app.core.exceptions import BusinessError, ERR_LOGIN_FAILED
 from app.core.response import success
+from app.core.security import create_access_token, verify_password
+from app.models.hr_user import HRUser
 from app.schemas.hr import (
+    HRLogin, HRTokenResponse,
     JobCreate, JobUpdate, JobOut,
     QuestionCreate, QuestionUpdate, QuestionOut,
     InviteRequest, SettingsUpdate,
@@ -17,10 +20,30 @@ from app.services import hr_service
 router = APIRouter(tags=["HR管理"])
 
 
+# ===== 登录（无需认证） =====
+
+@router.post("/login")
+async def hr_login(data: HRLogin, db: AsyncSession = Depends(get_db)):
+    """HR 用户名密码登录"""
+    result = await db.execute(select(HRUser).where(HRUser.username == data.username))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active or not verify_password(data.password, user.hashed_password):
+        raise BusinessError(ERR_LOGIN_FAILED, "用户名或密码错误")
+    token = create_access_token(subject=str(user.id), role="hr")
+    return success(HRTokenResponse(
+        access_token=token,
+        display_name=user.display_name,
+        role=user.role,
+    ))
+
+
 # ===== 仪表盘 =====
 
 @router.get("/dashboard")
-async def dashboard(db: AsyncSession = Depends(get_db)):
+async def dashboard(
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     stats = await hr_service.get_dashboard_stats(db)
     return success(stats)
 
@@ -32,6 +55,7 @@ async def list_jobs(
     status: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await hr_service.list_jobs(db, status, page, page_size)
@@ -44,13 +68,21 @@ async def list_jobs(
 
 
 @router.post("/jobs")
-async def create_job(data: JobCreate, db: AsyncSession = Depends(get_db)):
+async def create_job(
+    data: JobCreate,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     job = await hr_service.create_job(db, data.model_dump())
     return success(JobOut.model_validate(job))
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
+async def get_job(
+    job_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     job = await hr_service.get_job(db, job_id)
     if job is None:
         return {"code": 404, "message": "岗位不存在", "data": None}
@@ -58,7 +90,12 @@ async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/jobs/{job_id}")
-async def update_job(job_id: int, data: JobUpdate, db: AsyncSession = Depends(get_db)):
+async def update_job(
+    job_id: int,
+    data: JobUpdate,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     job = await hr_service.update_job(db, job_id, data.model_dump(exclude_unset=True))
     if job is None:
         return {"code": 404, "message": "岗位不存在", "data": None}
@@ -66,7 +103,11 @@ async def update_job(job_id: int, data: JobUpdate, db: AsyncSession = Depends(ge
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_job(
+    job_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     ok = await hr_service.delete_job(db, job_id)
     if not ok:
         return {"code": 404, "message": "岗位不存在", "data": None}
@@ -80,6 +121,7 @@ async def list_questions(
     job_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await hr_service.list_questions(db, job_id, page, page_size)
@@ -92,13 +134,21 @@ async def list_questions(
 
 
 @router.post("/questions")
-async def create_question(data: QuestionCreate, db: AsyncSession = Depends(get_db)):
+async def create_question(
+    data: QuestionCreate,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     question = await hr_service.create_question(db, data.model_dump())
     return success(QuestionOut.model_validate(question))
 
 
 @router.get("/questions/{question_id}")
-async def get_question(question_id: int, db: AsyncSession = Depends(get_db)):
+async def get_question(
+    question_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     question = await hr_service.get_question(db, question_id)
     if question is None:
         return {"code": 404, "message": "题目不存在", "data": None}
@@ -107,7 +157,10 @@ async def get_question(question_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.put("/questions/{question_id}")
 async def update_question(
-    question_id: int, data: QuestionUpdate, db: AsyncSession = Depends(get_db)
+    question_id: int,
+    data: QuestionUpdate,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
 ):
     question = await hr_service.update_question(db, question_id, data.model_dump(exclude_unset=True))
     if question is None:
@@ -116,7 +169,11 @@ async def update_question(
 
 
 @router.delete("/questions/{question_id}")
-async def delete_question(question_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_question(
+    question_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     ok = await hr_service.delete_question(db, question_id)
     if not ok:
         return {"code": 404, "message": "题目不存在", "data": None}
@@ -130,6 +187,7 @@ async def list_candidates(
     status: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await hr_service.list_candidates(db, status, page, page_size)
@@ -142,7 +200,11 @@ async def list_candidates(
 
 
 @router.get("/candidates/{candidate_id}")
-async def get_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)):
+async def get_candidate(
+    candidate_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     from app.services.candidate_service import get_candidate as get_c
     candidate = await get_c(db, candidate_id)
     if candidate is None:
@@ -152,7 +214,10 @@ async def get_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/candidates/{candidate_id}/invite")
 async def invite_candidate(
-    candidate_id: int, data: InviteRequest, db: AsyncSession = Depends(get_db)
+    candidate_id: int,
+    data: InviteRequest,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
 ):
     interview = await hr_service.invite_candidate(db, candidate_id, data.job_id)
     return success(InterviewOut.model_validate(interview))
@@ -166,6 +231,7 @@ async def list_interviews(
     job_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await hr_service.list_interviews(db, status, job_id, page, page_size)
@@ -178,8 +244,11 @@ async def list_interviews(
 
 
 @router.get("/interviews/{interview_id}")
-async def get_interview_detail(interview_id: int, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
+async def get_interview_detail(
+    interview_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     from app.models.interview import Interview
     from app.models.interview_answer import InterviewAnswer
     from app.models.candidate import Candidate
@@ -217,6 +286,7 @@ async def list_score_pool(
     job_id: int = Query(...),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await hr_service.list_score_pool(db, job_id, page, page_size)
@@ -226,12 +296,19 @@ async def list_score_pool(
 # ===== 系统设置 =====
 
 @router.get("/settings")
-async def get_settings(db: AsyncSession = Depends(get_db)):
+async def get_settings(
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     settings_data = await hr_service.get_settings(db)
     return success(settings_data)
 
 
 @router.put("/settings")
-async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_db)):
+async def update_settings(
+    data: SettingsUpdate,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await hr_service.update_settings(db, data.settings)
     return success(result)

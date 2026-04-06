@@ -225,4 +225,8 @@ async def _persist_state(db: AsyncSession, interview: Interview, state: Intervie
         })
         interview.report_content = report
 
+        # 更新评分池面试分
+        from app.services.score_pool_service import update_interview_score
+        await update_interview_score(db, interview.candidate_id, interview.job_id, state.total_score)
+
     await db.flush()

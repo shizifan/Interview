@@ -35,5 +35,11 @@ class Settings(BaseSettings):
     INTERVIEW_RECOVERY_HOURS: int = 24
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # JWT 认证
+    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_HOURS: int = 24
+    CANDIDATE_TEST_CODE: str = "123456"
+
 
 settings = Settings()

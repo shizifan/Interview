@@ -7,6 +7,7 @@ from app.models.document import Document
 from app.models.score_pool import ScorePool
 from app.models.interview_answer import InterviewAnswer
 from app.models.system_settings import SystemSettings
+from app.models.hr_user import HRUser
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "ScorePool",
     "InterviewAnswer",
     "SystemSettings",
+    "HRUser",
 ]

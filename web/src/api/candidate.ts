@@ -1,8 +1,8 @@
 import request from './request';
 import type { ApiResponse, Candidate, CandidateProfileUpdate, Document, Interview } from '@/types';
 
-export async function enterSystem(phone: string) {
-  const res = await request.post<ApiResponse<Candidate>>('/candidate/enter', { phone });
+export async function enterSystem(phone: string, code: string) {
+  const res = await request.post<ApiResponse<{ access_token: string; candidate: Candidate }>>('/candidate/enter', { phone, code });
   return res.data.data;
 }
 
@@ -39,6 +39,14 @@ export async function listInterviews(candidateId: number) {
 export async function getInterviewResult(candidateId: number, interviewId: number) {
   const res = await request.get<ApiResponse<{ interview: Interview; report: string }>>(
     `/candidate/candidates/${candidateId}/interviews/${interviewId}/result`,
+  );
+  return res.data.data;
+}
+
+export async function confirmOcr(candidateId: number, documentId: number, correctedFields: Record<string, string>) {
+  const res = await request.put<ApiResponse<Document>>(
+    `/candidate/candidates/${candidateId}/documents/${documentId}/ocr`,
+    { corrected_fields: correctedFields },
   );
   return res.data.data;
 }

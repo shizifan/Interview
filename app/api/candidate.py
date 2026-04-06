@@ -1,9 +1,16 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
+from app.core.config import settings
+from app.core.deps import get_db, get_current_candidate
+from app.core.exceptions import BusinessError, ERR_LOGIN_FAILED
 from app.core.response import success
-from app.schemas.candidate import CandidateEnter, CandidateProfile, CandidateProfileUpdate, DocumentOut
+from app.core.security import create_access_token
+from app.models.candidate import Candidate
+from app.schemas.candidate import (
+    CandidateEnter, CandidateProfile, CandidateProfileUpdate,
+    DocumentOut, TokenResponse, OcrCorrection,
+)
 from app.schemas.interview import InterviewOut
 from app.services import candidate_service, document_service
 
@@ -12,14 +19,23 @@ router = APIRouter(tags=["候选人"])
 
 @router.post("/enter")
 async def enter_system(data: CandidateEnter, db: AsyncSession = Depends(get_db)):
-    """通过手机号进入系统（自动查找或创建）"""
+    """手机号 + 验证码进入系统"""
+    if data.code != settings.CANDIDATE_TEST_CODE:
+        raise BusinessError(ERR_LOGIN_FAILED, "验证码错误")
     candidate = await candidate_service.enter_system(db, data.phone)
-    return success(CandidateProfile.model_validate(candidate))
+    token = create_access_token(subject=str(candidate.id), role="candidate")
+    return success(TokenResponse(
+        access_token=token,
+        candidate=CandidateProfile.model_validate(candidate),
+    ))
 
 
 @router.get("/candidates/{candidate_id}/profile")
-async def get_profile(candidate_id: int, db: AsyncSession = Depends(get_db)):
-    """获取候选人个人信息"""
+async def get_profile(
+    candidate_id: int,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
     candidate = await candidate_service.get_candidate(db, candidate_id)
     if candidate is None:
         return {"code": 404, "message": "候选人不存在", "data": None}
@@ -30,9 +46,9 @@ async def get_profile(candidate_id: int, db: AsyncSession = Depends(get_db)):
 async def update_profile(
     candidate_id: int,
     data: CandidateProfileUpdate,
+    current: Candidate = Depends(get_current_candidate),
     db: AsyncSession = Depends(get_db),
 ):
-    """更新候选人个人信息"""
     candidate = await candidate_service.update_profile(
         db, candidate_id, data.model_dump(exclude_unset=True)
     )
@@ -46,9 +62,9 @@ async def upload_document(
     candidate_id: int,
     file: UploadFile = File(...),
     doc_type: int = Form(...),
+    current: Candidate = Depends(get_current_candidate),
     db: AsyncSession = Depends(get_db),
 ):
-    """上传资质材料"""
     content = await file.read()
     doc = await document_service.upload_document(
         db, candidate_id, doc_type, content, file.filename or "upload.jpg"
@@ -57,15 +73,38 @@ async def upload_document(
 
 
 @router.get("/candidates/{candidate_id}/documents")
-async def list_documents(candidate_id: int, db: AsyncSession = Depends(get_db)):
-    """获取候选人材料列表"""
+async def list_documents(
+    candidate_id: int,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
     docs = await document_service.list_documents(db, candidate_id)
     return success([DocumentOut.model_validate(d) for d in docs])
 
 
+@router.put("/candidates/{candidate_id}/documents/{document_id}/ocr")
+async def confirm_ocr(
+    candidate_id: int,
+    document_id: int,
+    data: OcrCorrection,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
+    """确认/修正 OCR 识别结果"""
+    doc = await document_service.update_ocr_result(
+        db, document_id, candidate_id, data.corrected_fields
+    )
+    if doc is None:
+        return {"code": 404, "message": "材料不存在", "data": None}
+    return success(DocumentOut.model_validate(doc))
+
+
 @router.get("/candidates/{candidate_id}/interviews")
-async def list_interviews(candidate_id: int, db: AsyncSession = Depends(get_db)):
-    """获取候选人面试列表"""
+async def list_interviews(
+    candidate_id: int,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
     from sqlalchemy import select
     from app.models.interview import Interview
 
@@ -80,9 +119,11 @@ async def list_interviews(candidate_id: int, db: AsyncSession = Depends(get_db))
 
 @router.get("/candidates/{candidate_id}/interviews/{interview_id}/result")
 async def get_interview_result(
-    candidate_id: int, interview_id: int, db: AsyncSession = Depends(get_db)
+    candidate_id: int,
+    interview_id: int,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取面试结果"""
     from sqlalchemy import select
     from app.models.interview import Interview
 

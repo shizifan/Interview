@@ -289,6 +289,18 @@ export default function InterviewRoom() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      {/* 断连恢复横幅 */}
+      {reconnecting && (
+        <div className="bg-yellow-600 text-center py-2 text-sm font-medium animate-pulse">
+          连接中断，正在重连 ({reconnectAttempt}/5)...
+        </div>
+      )}
+      {!connected && !reconnecting && !isFinished && state && (
+        <div className="bg-red-600 text-center py-2 text-sm font-medium">
+          连接已断开，请检查网络后刷新页面
+        </div>
+      )}
+
       {/* 顶部状态栏 */}
       <header className="flex justify-between items-center px-4 py-3 bg-gray-800">
         <div className="text-sm">
@@ -408,6 +420,18 @@ export default function InterviewRoom() {
                 {submitting ? '...' : '发送'}
               </button>
             </div>
+          )}
+
+          {isRecording && (
+            <p className="text-center text-sm text-red-400 mt-2 animate-pulse">
+              录音中，点击停止按钮结束回答
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
           )}
 
           {isRecording && (

@@ -18,6 +18,7 @@ class Candidate(Base, TimestampMixin):
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[int] = mapped_column(Integer, default=0)  # 0-未审核 1-审核中 2-通过 3-拒绝
     total_score: Mapped[float] = mapped_column(Float, default=0.0)
+    qualification_detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON 评分明细
 
     documents = relationship("Document", back_populates="candidate", lazy="selectin")
     interviews = relationship("Interview", back_populates="candidate", lazy="selectin")

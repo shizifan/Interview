@@ -58,8 +58,9 @@ async def upload_document(
     doc.score = score
     doc.status = 2  # 通过
 
-    # 更新候选人总分
-    await _update_candidate_score(db, candidate_id)
+    # 触发资质综合评定
+    from app.services.qualification_service import evaluate_candidate
+    await evaluate_candidate(db, candidate_id)
     await db.flush()
 
     return doc
@@ -128,3 +129,38 @@ async def list_documents(db: AsyncSession, candidate_id: int) -> list[Document]:
         select(Document).where(Document.candidate_id == candidate_id).order_by(Document.id.desc())
     )
     return list(result.scalars().all())
+
+
+async def update_ocr_result(
+    db: AsyncSession, document_id: int, candidate_id: int, corrected_fields: dict[str, str]
+) -> Document | None:
+    """更新 OCR 识别结果（候选人修正后）"""
+    import json
+
+    result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.candidate_id == candidate_id)
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        return None
+
+    # 合并修正字段到现有 OCR 结果
+    existing: dict = {}
+    if doc.ocr_result:
+        try:
+            existing = json.loads(doc.ocr_result)
+        except (json.JSONDecodeError, TypeError):
+            existing = {}
+
+    existing.update(corrected_fields)
+    doc.ocr_result = json.dumps(existing, ensure_ascii=False)
+
+    # 重新计算单文档得分
+    doc.score = _calculate_doc_score(doc.type, existing)
+
+    # 触发资质综合评定
+    from app.services.qualification_service import evaluate_candidate
+    await evaluate_candidate(db, candidate_id)
+    await db.flush()
+
+    return doc

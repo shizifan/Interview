@@ -1,4 +1,4 @@
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Button } from 'antd';
 import {
   DashboardOutlined,
   TeamOutlined,
@@ -6,8 +6,10 @@ import {
   SettingOutlined,
   TrophyOutlined,
   SolutionOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '@/stores/authStore';
 
 const { Header, Sider, Content } = Layout;
 
@@ -23,10 +25,16 @@ const menuItems = [
 export default function HRLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const logout = useAuthStore((s) => s.logout);
 
   const selectedKey = menuItems.find((item) =>
     location.pathname === item.key || (item.key !== '/hr' && location.pathname.startsWith(item.key))
   )?.key || '/hr';
+
+  const handleLogout = () => {
+    logout();
+    navigate('/hr/login');
+  };
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -43,10 +51,13 @@ export default function HRLayout() {
         />
       </Sider>
       <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center' }}>
+        <Header style={{ background: '#fff', padding: '0 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 16, fontWeight: 500 }}>
             {menuItems.find((i) => i.key === selectedKey)?.label || '管理后台'}
           </span>
+          <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout}>
+            退出登录
+          </Button>
         </Header>
         <Content style={{ margin: 24, padding: 24, background: '#fff', borderRadius: 8, minHeight: 280 }}>
           <Outlet />

@@ -39,7 +39,8 @@
 │   │   ├── candidate_service.py        # 候选人业务逻辑
 │   │   ├── hr_service.py               # HR 业务逻辑
 │   │   ├── document_service.py         # 材料审核逻辑
-│   │   ├── score_pool_service.py       # 评分池管理
+│   │   ├── score_pool_service.py       # 评分池管理（材料分+面试分综合排名）
+│   │   ├── qualification_service.py    # 资质校验规则引擎（一票否决+四维度评分）
 │   │   ├── llm_service.py              # LLM 调用（意图理解、评分、报告生成）
 │   │   ├── asr_service.py              # 语音识别服务
 │   │   ├── tts_service.py              # 语音合成服务
@@ -51,22 +52,27 @@
 │   │   ├── question.py       # 题目
 │   │   ├── document.py       # 证件材料
 │   │   ├── score_pool.py     # 评分池
+│   │   ├── hr_user.py        # HR 用户
 │   │   ├── interview_answer.py  # 面试回答
 │   │   └── system_settings.py   # 系统设置
 │   ├── schemas/              # Pydantic 请求/响应模型
-│   ├── core/                 # 配置、异常、依赖注入
-│   │   └── config.py         # 环境变量配置（读 .env）
+│   ├── core/                 # 配置、异常、依赖注入、安全
+│   │   ├── config.py         # 环境变量配置（读 .env）
+│   │   ├── security.py       # JWT 令牌 + bcrypt 密码哈希
+│   │   ├── deps.py           # FastAPI 依赖注入（认证守卫、数据库会话）
+│   │   ├── exceptions.py     # 业务异常类 + 错误码定义
+│   │   └── response.py       # 统一响应封装（ApiResponse 泛型、success/error 工具函数）
 │   └── db/                   # 数据库初始化 + 种子数据
 │       ├── database.py       # 异步引擎、session 工厂、SQLite PRAGMA
-│       └── seed.py           # 种子数据（卡车司机岗位 + 5 道面试题）
+│       └── seed.py           # 种子数据（卡车司机岗位 + 5 道面试题 + HR 管理员账号）
 ├── web/                      # React 前端 (Vite)
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── candidate/    # 候选人端：Enter, Home, Profile, Documents, Interviews, InterviewRoom, InterviewResult
-│   │   │   └── hr/           # HR 端：Dashboard, Jobs, JobDetail, Candidates, HRInterviews, ScorePool, Settings
-│   │   ├── layouts/          # CandidateLayout, HRLayout
-│   │   ├── api/              # Axios 请求封装
-│   │   ├── stores/           # Zustand 状态管理
+│   │   │   └── hr/           # HR 端：Login, Dashboard, Jobs, JobDetail, Candidates, HRInterviews, ScorePool, Settings
+│   │   ├── layouts/          # CandidateLayout, HRLayout（含退出登录）
+│   │   ├── api/              # Axios 请求封装（含 Bearer Token 拦截器）
+│   │   ├── stores/           # Zustand 状态管理（authStore, candidateStore, interviewStore）
 │   │   ├── types/            # TypeScript 类型定义
 │   │   └── router.tsx        # 路由配置
 │   └── vite.config.ts        # Vite 配置（含 API 代理）
@@ -136,9 +142,10 @@ npm run dev
 ```
 
 前端启动后访问 http://localhost:5173 ：
-- 候选人入口：`/`
-- 候选人中心：`/candidate`
-- HR 管理后台：`/hr`
+- 候选人入口：`/`（手机号 + 验证码登录，测试验证码 `123456`）
+- 候选人中心：`/candidate`（需登录）
+- HR 登录：`/hr/login`（默认账号 `admin` / `admin123`）
+- HR 管理后台：`/hr`（需登录）
 
 > Vite 已配置代理，`/api` 和 `/ws` 请求会自动转发到后端 `localhost:8000`。
 
@@ -149,6 +156,65 @@ npm run dev
 ```bash
 uv run python scripts/init_db.py
 ```
+
+## 认证系统
+
+系统采用 **JWT (HS256)** 统一认证方案，支持两种角色：
+
+### 候选人认证
+
+- **入口**：`POST /api/v1/candidate/enter`
+- **方式**：手机号 + 验证码（MVP 阶段固定验证码 `123456`）
+- **流程**：验证码校验 -> 查找/创建候选人 -> 签发 JWT（role=candidate）-> 返回 token + 候选人信息
+- **后续请求**：前端通过 `authStore` 存储 token 到 localStorage，Axios 请求拦截器自动附加 `Authorization: Bearer <token>`
+
+### HR 认证
+
+- **入口**：`POST /api/v1/hr/login`
+- **方式**：用户名 + 密码（bcrypt 哈希校验）
+- **默认账号**：`admin` / `admin123`（通过种子数据创建）
+- **流程**：用户名查找 -> bcrypt 密码验证 -> 签发 JWT（role=hr）-> 返回 token + 显示名
+
+### 前端路由守卫
+
+- `RequireCandidateAuth`：校验 token 存在且 role=candidate，否则跳转 `/`
+- `RequireHRAuth`：校验 token 存在且 role=hr，否则跳转 `/hr/login`
+- 401 响应自动清除 token 并重定向到对应登录页
+
+## 资质校验引擎
+
+候选人每次上传材料或修正 OCR 结果后，系统自动触发资质综合评定：
+
+### 一票否决规则
+
+以下任一条件不满足则直接淘汰（候选人状态置为"拒绝"）：
+
+1. 缺少身份证
+2. 缺少驾驶证
+3. 驾驶证已过期
+4. 从业资格证已过期
+5. 准驾类型不满足任一发布中岗位的要求
+
+### 四维度评分（满分 100 分）
+
+| 维度 | 满分 | 评分规则 |
+|------|------|----------|
+| 基础资质 | 40 | 身份证完整性（20分）+ 驾驶证号（15分）+ 准驾类型（5分） |
+| 驾龄/经验 | 25 | 工作年限（每年5分，上限15分）+ 领证年限（每年2分，上限10分） |
+| 附加证件 | 20 | 从业资格证（12分）+ 资格证有效期内（4分）+ 体检报告（4分） |
+| 准驾类型匹配 | 15 | 匹配全部岗位（15分）/ 部分匹配（10分）/ 不匹配（0分） |
+
+### 评分池综合计算
+
+每个候选人在每个发布中的岗位下维护一条评分池记录：
+
+```
+total_score = doc_score * 0.4 + interview_score * 0.6
+```
+
+- **doc_score**：四维度评分总分（材料上传/OCR 修正时更新）
+- **interview_score**：面试状态机 finish 节点的总分（面试完成时更新）
+- 每次分数变化后自动按 total_score 降序重算排名
 
 ## 核心流程
 
@@ -187,11 +253,11 @@ intro（开场白）
 
 ### API 路由
 
-| 模块 | 前缀 | 说明 |
-|------|------|------|
-| 候选人 | `/api/v1/candidate` | 注册、登录、个人信息、材料上传、面试 |
-| HR | `/api/v1/hr` | 岗位管理、题库、候选人管理、面试结果、系统设置 |
-| 面试流程 | `/api/v1/interview` | 面试状态查询、提交回答、超时、中断 |
+| 模块 | 前缀 | 认证 | 说明 |
+|------|------|------|------|
+| 候选人 | `/api/v1/candidate` | JWT(candidate) | 登录(`/enter`无需认证)、个人信息、材料上传、OCR修正、面试列表 |
+| HR | `/api/v1/hr` | JWT(hr) | 登录(`/login`无需认证)、仪表盘、岗位CRUD、题库CRUD、候选人管理、邀约面试、面试详情、评分池、系统设置 |
+| 面试流程 | `/api/v1/interview` | JWT(candidate) | 开始面试、状态查询、恢复中断、提交回答、超时、中断 |
 | 文件 | `/api/v1/files` | 鉴权文件访问 |
 
 ## AI 服务架构
@@ -240,6 +306,16 @@ InterviewRoom 组件实现完整的语音面试交互：
 - **TTS 播放**：接收后端 WebSocket 二进制音频帧，通过 HTML5 Audio API 播放
 - **双模式输入**：支持语音录制和文字输入两种方式
 - **实时状态**：连接状态指示、录音/播放动画、面试计时器
+- **中断恢复**：WebSocket 断连后指数退避自动重连（最多 5 次），断连/重连状态横幅提示
+- **离开防护**：面试进行中触发 `beforeunload` 事件阻止意外关闭页面
+
+### 材料上传与 OCR 核对
+
+Documents 页面实现证件材料全流程管理：
+- **材料上传**：支持身份证、驾驶证、从业资格证、体检报告四类材料拍照上传
+- **OCR 自动识别**：上传后立即调用 OCR 服务提取证件信息，结果以中文标签展示
+- **人工修正**：候选人可点击"修正"编辑 OCR 识别结果中的错误字段
+- **自动重评**：修正保存后自动触发资质校验引擎重新计算评分
 
 ## 开发说明
 
@@ -268,6 +344,9 @@ InterviewRoom 组件实现完整的语音面试交互：
 
 | 配置 | 默认值 | 说明 |
 |------|--------|------|
+| `SECRET_KEY` | `dev-secret-key-...` | JWT 签名密钥（生产环境务必更换） |
+| `JWT_EXPIRE_HOURS` | 24 | JWT 令牌有效期（小时） |
+| `CANDIDATE_TEST_CODE` | `123456` | 候选人登录固定验证码（MVP 阶段） |
 | `AI_SERVICE_MODE` | `mock` | AI 服务模式：`mock`（模拟数据）或 `real`（真实 API） |
 | `LLM_API_URL` | - | Qwen3-235B API 地址（OpenAI 兼容） |
 | `LLM_API_KEY` | - | Qwen3-235B API 密钥 |
@@ -283,40 +362,6 @@ InterviewRoom 组件实现完整的语音面试交互：
 | `MAX_FOLLOW_UP_COUNT` | 2 | 单题最大追问次数 |
 | `ANSWER_TIMEOUT_SECONDS` | 30 | 回答超时时间（秒） |
 | `INTERVIEW_RECOVERY_HOURS` | 24 | 面试中断后可恢复的时间窗口（小时） |
-
-## 后续工作（TODO）
-
-以下是 MVP 阶段尚未完成或需要完善的工作，按优先级排列：
-
-### P0 - 核心流程完善
-
-- [ ] JWT 认证完整实现（候选人手机号+验证码登录、HR 用户名密码登录）
-- [x] OCR 证件识别对接真实 Qwen2-VL-72B API，实现证件信息提取
-- [ ] 资质校验规则引擎实现（一票否决、准驾车型匹配、有效期校验）
-- [ ] 评分池综合得分计算（基础资质 40% + 驾龄 25% + 附加证件 20% + 准驾类型 15%）
-- [x] LLM 评分逻辑对接真实 Qwen3-235B API（意图理解、得分点判断、报告生成）
-- [x] ASR/TTS 对接真实 DashScope API
-- [x] 前端面试间 InterviewRoom 完整实现（VAD 录音 + WebSocket 通信 + TTS 播放）
-- [ ] 前端候选人材料上传 + OCR 结果核对页面
-- [ ] HR 后台岗位管理、题库管理的完整 CRUD
-- [ ] 面试中断恢复功能（24小时内从断点继续）
-- [x] 前端设备检测（麦克风权限 + 网络状态）
-
-### P1 - 体验增强
-
-- [ ] 面试过程录音保存，HR 可复听
-- [ ] 模拟面试功能（不计分练习）
-- [ ] HR 数据看板（招聘漏斗、通过率等）
-- [ ] 批量候选人导入（CSV + 图片包）
-- [ ] 消息通知（材料审核结果、面试邀请）
-
-### 演进路线
-
-MVP 验证通过后有两条演进方向：
-- **Track A - 客户端软件**：Tauri + Python Sidecar，离线可用，企业本地部署
-- **Track B - 微信 H5**：云部署 FastAPI + PostgreSQL，微信生态，候选人自助
-
-详细需求参考 `spec/` 目录下的需求规格说明书。
 
 ## 相关文档
 

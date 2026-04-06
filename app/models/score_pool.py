@@ -12,6 +12,8 @@ class ScorePool(Base, TimestampMixin):
     candidate_id: Mapped[int] = mapped_column(Integer, ForeignKey("candidate.id"), nullable=False)
     job_id: Mapped[int] = mapped_column(Integer, ForeignKey("job.id"), nullable=False)
     doc_score: Mapped[float] = mapped_column(Float, default=0.0)
+    interview_score: Mapped[float] = mapped_column(Float, default=0.0)
+    total_score: Mapped[float] = mapped_column(Float, default=0.0)
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_invited: Mapped[bool] = mapped_column(Boolean, default=False)
 

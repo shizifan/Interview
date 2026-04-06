@@ -1,6 +1,18 @@
 from pydantic import BaseModel, Field
 
 
+class HRLogin(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class HRTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    display_name: str = ""
+    role: str = ""
+
+
 class JobCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = None

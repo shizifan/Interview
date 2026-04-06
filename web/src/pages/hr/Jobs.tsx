@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Space, Tag, message, Popconfirm } from 'antd';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, Tag, message, Popconfirm } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { Job, JobCreate } from '@/types';
@@ -10,6 +10,8 @@ const statusMap: Record<number, { text: string; color: string }> = {
   1: { text: '招聘中', color: 'green' },
   2: { text: '已关闭', color: 'red' },
 };
+
+const licenseOptions = ['A1', 'A2', 'A3', 'B1', 'B2', 'C1', 'C2', 'C3', 'D', 'E'].map((v) => ({ label: v, value: v }));
 
 export default function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -49,6 +51,14 @@ export default function Jobs() {
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
+    let licenseTypes: string[] = [];
+    if (job.required_license_type) {
+      try {
+        licenseTypes = JSON.parse(job.required_license_type);
+      } catch {
+        licenseTypes = [];
+      }
+    }
     form.setFieldsValue({
       name: job.name,
       description: job.description,
@@ -56,14 +66,29 @@ export default function Jobs() {
       quota: job.quota,
       start_coefficient: job.start_coefficient,
       min_interview_count: job.min_interview_count,
+      required_license_type: licenseTypes,
     });
     setModalOpen(true);
+  };
+
+  const parseLicenseType = (v: string | null | undefined): string[] => {
+    if (!v) return [];
+    try { return JSON.parse(v); } catch { return []; }
   };
 
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
     { title: '岗位名称', dataIndex: 'name' },
     { title: '招聘人数', dataIndex: 'quota', width: 100 },
+    {
+      title: '准驾类型', dataIndex: 'required_license_type', width: 160,
+      render: (v: string | null) => {
+        const types = parseLicenseType(v);
+        return types.length > 0
+          ? types.map((t) => <Tag key={t} color="blue">{t}</Tag>)
+          : <span style={{ color: '#999' }}>不限</span>;
+      },
+    },
     {
       title: '状态', dataIndex: 'status', width: 100,
       render: (v: number) => <Tag color={statusMap[v]?.color}>{statusMap[v]?.text}</Tag>,
@@ -113,6 +138,9 @@ export default function Jobs() {
           </Form.Item>
           <Form.Item name="requirements" label="任职要求">
             <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="required_license_type" label="要求准驾类型">
+            <Select mode="multiple" placeholder="选择准驾类型（不选表示不限）" options={licenseOptions} allowClear />
           </Form.Item>
           <Form.Item name="quota" label="招聘人数" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: '100%' }} />

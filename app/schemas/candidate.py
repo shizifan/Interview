@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class CandidateEnter(BaseModel):
     phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    code: str = Field(..., min_length=1, description="验证码")
 
 
 class CandidateProfile(BaseModel):
@@ -21,6 +22,12 @@ class CandidateProfile(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    candidate: CandidateProfile | None = None
 
 
 class CandidateProfileUpdate(BaseModel):
@@ -48,3 +55,7 @@ class DocumentOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OcrCorrection(BaseModel):
+    corrected_fields: dict[str, str]

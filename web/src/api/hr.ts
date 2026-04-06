@@ -2,8 +2,14 @@ import request from './request';
 import type {
   ApiResponse, PaginatedData, DashboardStats,
   Job, JobCreate, Question, QuestionCreate,
-  Candidate, Interview, SystemSettings, ScorePoolEntry,
+  Candidate, Interview, InterviewDetail, SystemSettings, ScorePoolEntry,
 } from '@/types';
+
+// 登录
+export async function hrLogin(username: string, password: string) {
+  const res = await request.post<ApiResponse<{ access_token: string; display_name: string; role: string }>>('/hr/login', { username, password });
+  return res.data.data;
+}
 
 // 仪表盘
 export async function getDashboard() {
@@ -76,6 +82,11 @@ export async function getInterviews(page = 1, pageSize = 20) {
   const res = await request.get<ApiResponse<PaginatedData<Interview>>>('/hr/interviews', {
     params: { page, page_size: pageSize },
   });
+  return res.data.data;
+}
+
+export async function getInterviewDetail(interviewId: number) {
+  const res = await request.get<ApiResponse<InterviewDetail>>(`/hr/interviews/${interviewId}`);
   return res.data.data;
 }
 

@@ -109,6 +109,24 @@ export interface Interview {
   updated_at: string;
 }
 
+export interface InterviewAnswer {
+  id: number;
+  interview_id: number;
+  question_id: number;
+  question_order: number;
+  answer_text: string;
+  follow_up_count: number;
+  score: number;
+  score_detail: string | null;
+}
+
+export interface InterviewDetail {
+  interview: Interview;
+  answers: InterviewAnswer[];
+  candidate_name: string | null;
+  job_name: string | null;
+}
+
 /* ========== 面试状态机 ========== */
 export interface InterviewState {
   interview_id: number;

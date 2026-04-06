@@ -20,6 +20,8 @@ ERR_CANDIDATE_NOT_APPROVED = 605  # 候选人未通过审核
 ERR_DOC_VALIDATION = 606     # 材料校验失败
 ERR_NO_QUESTIONS = 607       # 题库为空
 ERR_PHONE_EXISTS = 608       # 手机号已存在
+ERR_AUTH_INVALID = 609       # 认证无效或已过期
+ERR_LOGIN_FAILED = 611       # 用户名或密码错误
 
 
 async def business_error_handler(_request: Request, exc: BusinessError) -> JSONResponse:

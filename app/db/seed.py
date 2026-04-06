@@ -6,10 +6,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.job import Job
 from app.models.question import Question
 from app.models.system_settings import SystemSettings
+from app.models.hr_user import HRUser
+from app.core.security import hash_password
 
 
 async def seed_data(db: AsyncSession) -> None:
     """填充示例数据（仅在表为空时执行）"""
+    # HR 管理员
+    result = await db.execute(select(HRUser).limit(1))
+    if result.scalar_one_or_none() is None:
+        admin = HRUser(
+            username="admin",
+            hashed_password=hash_password("admin123"),
+            display_name="管理员",
+            role="admin",
+        )
+        db.add(admin)
+
     # 系统设置
     result = await db.execute(select(SystemSettings).limit(1))
     if result.scalar_one_or_none() is None:

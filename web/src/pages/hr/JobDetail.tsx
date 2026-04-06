@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Table, Button, Modal, Form, Input, InputNumber, Space, message, Popconfirm, Switch } from 'antd';
+import { Table, Button, Modal, Form, Input, InputNumber, Space, Tag, message, Popconfirm, Switch } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import type { Job, Question, QuestionCreate } from '@/types';
 import * as hrApi from '@/api/hr';
@@ -51,6 +51,20 @@ export default function JobDetail() {
   const columns = [
     { title: '序号', dataIndex: 'sort_order', width: 60 },
     { title: '题目内容', dataIndex: 'content' },
+    {
+      title: '得分要点', dataIndex: 'score_points', width: 240,
+      render: (v: string | string[]) => {
+        let points: string[] = [];
+        if (Array.isArray(v)) {
+          points = v;
+        } else if (typeof v === 'string') {
+          try { points = JSON.parse(v); } catch { points = []; }
+        }
+        return points.length > 0
+          ? points.map((p, i) => <Tag key={i} color="blue" style={{ marginBottom: 2 }}>{p}</Tag>)
+          : <span style={{ color: '#999' }}>-</span>;
+      },
+    },
     {
       title: '启用', dataIndex: 'is_active', width: 80,
       render: (v: boolean) => <Switch checked={v} disabled size="small" />,

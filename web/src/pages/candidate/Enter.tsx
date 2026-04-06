@@ -4,6 +4,7 @@ import { useCandidateStore } from '@/stores/candidateStore';
 
 export default function Enter() {
   const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const { enterSystem, loading } = useCandidateStore();
   const navigate = useNavigate();
@@ -14,8 +15,12 @@ export default function Enter() {
       setError('请输入正确的手机号');
       return;
     }
+    if (!code) {
+      setError('请输入验证码');
+      return;
+    }
     try {
-      await enterSystem(phone);
+      await enterSystem(phone, code);
       navigate('/candidate');
     } catch (e) {
       setError(e instanceof Error ? e.message : '进入失败');
@@ -39,6 +44,17 @@ export default function Enter() {
               placeholder="请输入手机号"
               value={phone}
               onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+              className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">验证码</label>
+            <input
+              type="text"
+              maxLength={6}
+              placeholder="请输入验证码"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
               className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -54,7 +70,7 @@ export default function Enter() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          首次使用将自动创建账号
+          测试验证码：123456
         </p>
       </div>
     </div>

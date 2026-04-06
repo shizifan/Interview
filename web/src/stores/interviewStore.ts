@@ -13,6 +13,10 @@ interface InterviewStore {
   isTtsPlaying: boolean;
   asrText: string | null;
   ttsAudioQueue: ArrayBuffer[];
+  // 重连相关
+  reconnecting: boolean;
+  reconnectAttempt: number;
+  _reconnectTimer: ReturnType<typeof setTimeout> | null;
 
   startInterview: (candidateId: number, jobId: number) => Promise<void>;
   recoverInterview: (interviewId: number) => Promise<void>;
@@ -30,6 +34,8 @@ interface InterviewStore {
   consumeTtsAudio: () => ArrayBuffer | undefined;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 export const useInterviewStore = create<InterviewStore>((set, get) => ({
   interviewId: null,
   state: null,
@@ -40,6 +46,9 @@ export const useInterviewStore = create<InterviewStore>((set, get) => ({
   isTtsPlaying: false,
   asrText: null,
   ttsAudioQueue: [],
+  reconnecting: false,
+  reconnectAttempt: 0,
+  _reconnectTimer: null,
 
   startInterview: async (candidateId, jobId) => {
     set({ loading: true });
@@ -62,12 +71,17 @@ export const useInterviewStore = create<InterviewStore>((set, get) => ({
   },
 
   connectWs: (interviewId) => {
+    // 清理之前的重连定时器
+    const oldTimer = get()._reconnectTimer;
+    if (oldTimer) clearTimeout(oldTimer);
+
+    const token = localStorage.getItem('token') || '';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/interview/${interviewId}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/interview/${interviewId}?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => set({ connected: true });
+    ws.onopen = () => set({ connected: true, reconnecting: false, reconnectAttempt: 0 });
 
     ws.onmessage = (event) => {
       // 二进制消息 = TTS 音频
@@ -88,7 +102,21 @@ export const useInterviewStore = create<InterviewStore>((set, get) => ({
       }
     };
 
-    ws.onclose = () => set({ connected: false, ws: null });
+    ws.onclose = () => {
+      set({ connected: false, ws: null });
+      // 自动重连（面试未结束时）
+      const { state: currentState, reconnectAttempt } = get();
+      const isFinished = currentState?.status === 'completed' || currentState?.status === 'interrupted';
+      if (!isFinished && reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 16000);
+        set({ reconnecting: true, reconnectAttempt: reconnectAttempt + 1 });
+        const timer = setTimeout(() => get().connectWs(interviewId), delay);
+        set({ _reconnectTimer: timer });
+      } else if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+        set({ reconnecting: false });
+      }
+    };
+
     ws.onerror = () => set({ connected: false });
 
     set({ ws, interviewId });
@@ -140,11 +168,12 @@ export const useInterviewStore = create<InterviewStore>((set, get) => ({
   },
 
   disconnect: () => {
-    const { ws } = get();
+    const { ws, _reconnectTimer } = get();
+    if (_reconnectTimer) clearTimeout(_reconnectTimer);
     if (ws) {
       ws.close();
     }
-    set({ ws: null, connected: false });
+    set({ ws: null, connected: false, reconnecting: false, reconnectAttempt: 0, _reconnectTimer: null });
   },
 
   reset: () => {
