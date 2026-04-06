@@ -174,12 +174,15 @@ intro（开场白）
 
 | 消息类型 | 方向 | 说明 |
 |----------|------|------|
-| `audio_chunk`（二进制） | 前端 -> 后端 | 音频 PCM 数据块 |
-| `audio_end` | 前端 -> 后端 | 说话结束信号，触发 ASR |
+| 二进制帧（音频） | 前端 -> 后端 | MediaRecorder 录制的音频数据块（WebM/WAV） |
+| `audio_end` | 前端 -> 后端 | 录音结束信号，触发 ASR 转写 |
+| `text_input` | 前端 -> 后端 | 文字输入模式的候选人回答 |
+| `tts_played` | 前端 -> 后端 | TTS 播放完成确认 |
 | `timeout` | 前端 -> 后端 | 30s 超时通知 |
 | `abort` | 前端 -> 后端 | 主动中断面试 |
-| `asr_result` | 后端 -> 前端 | ASR 转写结果 |
+| `asr_result` | 后端 -> 前端 | ASR 转写结果文本 |
 | `state_update` | 后端 -> 前端 | 状态机节点变化 + TTS 文本 |
+| 二进制帧（音频） | 后端 -> 前端 | TTS 合成的语音音频（WAV 格式） |
 | `interview_end` | 后端 -> 前端 | 面试结束 + 总分 |
 
 ### API 路由
@@ -191,17 +194,68 @@ intro（开场白）
 | 面试流程 | `/api/v1/interview` | 面试状态查询、提交回答、超时、中断 |
 | 文件 | `/api/v1/files` | 鉴权文件访问 |
 
+## AI 服务架构
+
+系统采用 **策略模式 + 工厂函数** 管理 AI 服务，每个服务包含：
+- 抽象基类（`LLMService` / `OCRService` / `ASRService` / `TTSService`）
+- Mock 实现（用于联调，返回模拟数据）
+- Real 实现（对接真实 AI API）
+- 工厂函数（根据 `AI_SERVICE_MODE` 配置返回对应实例，单例缓存）
+
+### LLM 服务 (Qwen3-235B)
+
+通过 OpenAI 兼容 API 调用，使用 httpx 异步客户端：
+- `judge_score_points()` - 候选人回答评分，逐项判断得分点覆盖情况
+- `detect_intent()` - 意图识别（正常回答 / 空白 / 请求重播），内置关键词快速路径 + LLM 兜底
+- `generate_report()` - 生成面试评估报告（Markdown 格式）
+- 内置 `_extract_json()` 方法，处理 Qwen3 的 `<think>` 标签和 Markdown 代码块
+
+### OCR 服务 (Qwen2-VL-72B)
+
+通过 OpenAI Vision 兼容 API 调用，支持 4 种证件类型：
+- 身份证：提取姓名、身份证号、地址、出生日期
+- 驾驶证：提取准驾车型、有效期、初次领证日期
+- 从业资格证：提取资格类别、有效期、发证机关
+- 其他证件：通用信息提取
+
+### ASR 服务 (FunASR via DashScope)
+
+使用 DashScope SDK `Recognition` 类：
+- 支持 WAV / WebM / MP3 格式自动检测（magic bytes）
+- 同步 SDK 通过 `asyncio.to_thread()` 包装为异步调用
+- 临时文件写入 + 自动清理
+
+### TTS 服务 (CosyVoice via DashScope)
+
+使用 DashScope SDK `SpeechSynthesizer` 类：
+- 默认音色：longxiaochun
+- 输出格式：WAV
+- 后端合成后通过 WebSocket 二进制帧发送给前端
+
+### 前端面试间
+
+InterviewRoom 组件实现完整的语音面试交互：
+- **设备检测**：面试前检查麦克风权限和网络连接状态
+- **语音录制**：基于 MediaRecorder API，录音数据通过 WebSocket 二进制帧发送
+- **TTS 播放**：接收后端 WebSocket 二进制音频帧，通过 HTML5 Audio API 播放
+- **双模式输入**：支持语音录制和文字输入两种方式
+- **实时状态**：连接状态指示、录音/播放动画、面试计时器
+
 ## 开发说明
 
-### Mock 模式
+### Mock 模式 vs Real 模式
 
 `AI_SERVICE_MODE=mock`（`.env` 默认值）时，所有 AI 服务返回模拟数据：
-- LLM：返回预设评分结果
+- LLM：返回预设评分结果（满分）
 - ASR：返回模拟转写文本
-- TTS：返回空音频
+- TTS：返回静音 WAV 音频
 - OCR：返回模拟识别结果
 
-切换为真实 AI 服务：将 `.env` 中 `AI_SERVICE_MODE` 改为 `real`，并填写对应 API Key。
+`AI_SERVICE_MODE=real` 时，连接真实 AI 服务：
+- LLM / OCR 通过 httpx 调用 OpenAI 兼容 API（中移香港 LMMP 平台）
+- ASR / TTS 通过 DashScope Python SDK 调用阿里云百炼服务
+- 所有服务实例采用单例模式缓存，复用连接池
+- 异常时自动降级（评分返回 0 分、ASR 返回空文本、TTS 返回静音音频）
 
 ### 数据库
 
@@ -214,6 +268,17 @@ intro（开场白）
 
 | 配置 | 默认值 | 说明 |
 |------|--------|------|
+| `AI_SERVICE_MODE` | `mock` | AI 服务模式：`mock`（模拟数据）或 `real`（真实 API） |
+| `LLM_API_URL` | - | Qwen3-235B API 地址（OpenAI 兼容） |
+| `LLM_API_KEY` | - | Qwen3-235B API 密钥 |
+| `LLM_TIMEOUT` | 60 | LLM 请求超时（秒） |
+| `LLM_MAX_TOKENS` | 2048 | LLM 最大输出 token 数 |
+| `OCR_API_URL` | - | Qwen2-VL-72B Vision API 地址 |
+| `OCR_API_KEY` | - | Qwen2-VL-72B API 密钥 |
+| `DASHSCOPE_API_KEY` | - | 阿里云 DashScope API 密钥（ASR + TTS 共用） |
+| `ASR_MODEL` | `paraformer-v2` | ASR 模型名称 |
+| `TTS_MODEL` | `cosyvoice-v2` | TTS 模型名称 |
+| `TTS_VOICE` | `longxiaochun` | TTS 音色 |
 | `MAX_DAILY_INTERVIEWS` | 3 | 同一候选人同一岗位每日最大面试次数 |
 | `MAX_FOLLOW_UP_COUNT` | 2 | 单题最大追问次数 |
 | `ANSWER_TIMEOUT_SECONDS` | 30 | 回答超时时间（秒） |
@@ -226,16 +291,16 @@ intro（开场白）
 ### P0 - 核心流程完善
 
 - [ ] JWT 认证完整实现（候选人手机号+验证码登录、HR 用户名密码登录）
-- [ ] OCR 证件识别对接真实 Qwen2-VL-72B API，实现证件信息提取
+- [x] OCR 证件识别对接真实 Qwen2-VL-72B API，实现证件信息提取
 - [ ] 资质校验规则引擎实现（一票否决、准驾车型匹配、有效期校验）
 - [ ] 评分池综合得分计算（基础资质 40% + 驾龄 25% + 附加证件 20% + 准驾类型 15%）
-- [ ] LLM 评分逻辑对接真实 Qwen3-235B API（意图理解、得分点判断、报告生成）
-- [ ] ASR/TTS 对接真实 DashScope API
-- [ ] 前端面试间 InterviewRoom 完整实现（VAD 录音 + WebSocket 通信 + TTS 播放）
+- [x] LLM 评分逻辑对接真实 Qwen3-235B API（意图理解、得分点判断、报告生成）
+- [x] ASR/TTS 对接真实 DashScope API
+- [x] 前端面试间 InterviewRoom 完整实现（VAD 录音 + WebSocket 通信 + TTS 播放）
 - [ ] 前端候选人材料上传 + OCR 结果核对页面
 - [ ] HR 后台岗位管理、题库管理的完整 CRUD
 - [ ] 面试中断恢复功能（24小时内从断点继续）
-- [ ] 前端设备检测（麦克风权限 + 网络状态）
+- [x] 前端设备检测（麦克风权限 + 网络状态）
 
 ### P1 - 体验增强
 

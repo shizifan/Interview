@@ -5,6 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.db.database import async_session_factory
 from app.services import interview_service
+from app.services.tts_service import get_tts_service
 
 logger = structlog.get_logger(__name__)
 
@@ -12,6 +13,41 @@ router = APIRouter()
 
 # 活跃WebSocket连接注册表
 _active_connections: dict[int, WebSocket] = {}
+
+
+async def _send_state_and_tts(
+    websocket: WebSocket,
+    state,
+    interview_id: int,
+) -> None:
+    """发送状态更新，如果有 tts_text 则合成并发送音频"""
+    await websocket.send_json({
+        "type": "state_update",
+        "data": {
+            "current_node": state.current_node,
+            "current_question_index": state.current_question_index,
+            "total_questions": len(state.questions),
+            "tts_text": state.tts_text,
+            "status": state.status,
+            "score": state.total_score,
+            "message": state.message,
+        },
+    })
+
+    # TTS 音频合成并发送
+    if state.tts_text:
+        try:
+            tts = get_tts_service()
+            audio_data = await tts.synthesize(state.tts_text)
+            if audio_data:
+                await websocket.send_bytes(audio_data)
+                logger.info(
+                    "tts_audio_sent",
+                    interview_id=interview_id,
+                    audio_bytes=len(audio_data),
+                )
+        except Exception as e:
+            logger.error("tts_send_error", interview_id=interview_id, error=str(e))
 
 
 @router.websocket("/ws/interview/{interview_id}")
@@ -71,18 +107,7 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
                             state = await interview_service.process_answer(db, interview_id, text)
                             await db.commit()
 
-                            await websocket.send_json({
-                                "type": "state_update",
-                                "data": {
-                                    "current_node": state.current_node,
-                                    "current_question_index": state.current_question_index,
-                                    "total_questions": len(state.questions),
-                                    "tts_text": state.tts_text,
-                                    "status": state.status,
-                                    "score": state.total_score,
-                                    "message": state.message,
-                                },
-                            })
+                            await _send_state_and_tts(websocket, state, interview_id)
 
                             if state.is_finished:
                                 await websocket.send_json({
@@ -97,18 +122,7 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
                             state = await interview_service.handle_timeout(db, interview_id)
                             await db.commit()
 
-                            await websocket.send_json({
-                                "type": "state_update",
-                                "data": {
-                                    "current_node": state.current_node,
-                                    "current_question_index": state.current_question_index,
-                                    "total_questions": len(state.questions),
-                                    "tts_text": state.tts_text,
-                                    "status": state.status,
-                                    "score": state.total_score,
-                                    "message": state.message,
-                                },
-                            })
+                            await _send_state_and_tts(websocket, state, interview_id)
 
                         elif msg_type == "abort":
                             state = await interview_service.abort_interview(db, interview_id)
