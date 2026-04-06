@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+
+# IDE / Editor
+.qoder/
+
+# Logs
+logs/
+
+# Database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
