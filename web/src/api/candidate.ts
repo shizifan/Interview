@@ -1,8 +1,23 @@
 import request from './request';
-import type { ApiResponse, Candidate, CandidateProfileUpdate, Document, Interview } from '@/types';
+import type { ApiResponse, Candidate, CandidateProfileUpdate, Document, Interview, InterviewState, Job } from '@/types';
 
 export async function enterSystem(phone: string, code: string) {
   const res = await request.post<ApiResponse<{ access_token: string; candidate: Candidate }>>('/candidate/enter', { phone, code });
+  return res.data.data;
+}
+
+export async function getMe() {
+  const res = await request.get<ApiResponse<Candidate>>('/candidate/me');
+  return res.data.data;
+}
+
+export async function getJobs() {
+  const res = await request.get<ApiResponse<Job[]>>('/candidate/jobs');
+  return res.data.data;
+}
+
+export async function applyJob(jobId: number) {
+  const res = await request.post<ApiResponse<InterviewState>>(`/candidate/jobs/${jobId}/apply`);
   return res.data.data;
 }
 

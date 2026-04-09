@@ -7,7 +7,9 @@ interface CandidateStore {
   candidate: Candidate | null;
   documents: Document[];
   loading: boolean;
+  initialized: boolean;
 
+  init: () => Promise<void>;
   enterSystem: (phone: string, code: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (data: Record<string, unknown>) => Promise<void>;
@@ -20,6 +22,23 @@ export const useCandidateStore = create<CandidateStore>((set, get) => ({
   candidate: null,
   documents: [],
   loading: false,
+  initialized: false,
+
+  init: async () => {
+    const { candidate, initialized } = get();
+    if (candidate || initialized) return;
+    const auth = useAuthStore.getState();
+    if (!auth.token || auth.role !== 'candidate') return;
+    set({ loading: true, initialized: true });
+    try {
+      const me = await candidateApi.getMe();
+      set({ candidate: me });
+    } catch {
+      auth.logout();
+    } finally {
+      set({ loading: false });
+    }
+  },
 
   enterSystem: async (phone: string, code: string) => {
     set({ loading: true });
@@ -60,5 +79,5 @@ export const useCandidateStore = create<CandidateStore>((set, get) => ({
     await get().loadDocuments();
   },
 
-  reset: () => set({ candidate: null, documents: [], loading: false }),
+  reset: () => set({ candidate: null, documents: [], loading: false, initialized: false }),
 }));

@@ -30,6 +30,61 @@ async def enter_system(data: CandidateEnter, db: AsyncSession = Depends(get_db))
     ))
 
 
+@router.get("/me")
+async def get_me(
+    current: Candidate = Depends(get_current_candidate),
+):
+    """根据 JWT 返回当前候选人信息（用于刷新后恢复会话）"""
+    return success(CandidateProfile.model_validate(current))
+
+
+@router.get("/jobs")
+async def list_jobs_for_candidate(
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
+    """候选人可见的招聘中岗位列表"""
+    from sqlalchemy import select
+    from app.models.job import Job
+    from app.schemas.hr import JobOut
+
+    result = await db.execute(
+        select(Job).where(Job.status == 1).order_by(Job.id.desc())
+    )
+    jobs = result.scalars().all()
+    return success([JobOut.model_validate(j) for j in jobs])
+
+
+@router.post("/jobs/{job_id}/apply")
+async def apply_job(
+    job_id: int,
+    current: Candidate = Depends(get_current_candidate),
+    db: AsyncSession = Depends(get_db),
+):
+    """候选人申请岗位（创建面试）"""
+    from sqlalchemy import select
+    from app.models.job import Job
+    from app.services import interview_service
+    from app.schemas.interview import InterviewState
+
+    result = await db.execute(select(Job).where(Job.id == job_id, Job.status == 1))
+    job = result.scalar_one_or_none()
+    if job is None:
+        return {"code": 404, "message": "岗位不存在或未开放", "data": None}
+
+    state = await interview_service.create_and_start_interview(db, current.id, job_id)
+    return success(InterviewState(
+        interview_id=state.interview_id,
+        current_node=state.current_node,
+        current_question_index=state.current_question_index,
+        total_questions=len(state.questions),
+        tts_text=state.tts_text,
+        status=state.status,
+        score=state.total_score,
+        message=state.message,
+    ))
+
+
 @router.get("/candidates/{candidate_id}/profile")
 async def get_profile(
     candidate_id: int,

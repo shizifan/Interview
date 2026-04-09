@@ -51,14 +51,6 @@ export default function Jobs() {
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
-    let licenseTypes: string[] = [];
-    if (job.required_license_type) {
-      try {
-        licenseTypes = JSON.parse(job.required_license_type);
-      } catch {
-        licenseTypes = [];
-      }
-    }
     form.setFieldsValue({
       name: job.name,
       description: job.description,
@@ -66,7 +58,7 @@ export default function Jobs() {
       quota: job.quota,
       start_coefficient: job.start_coefficient,
       min_interview_count: job.min_interview_count,
-      required_license_type: licenseTypes,
+      required_license_type: job.required_license_type || '',
     });
     setModalOpen(true);
   };
