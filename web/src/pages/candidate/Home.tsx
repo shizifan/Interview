@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCandidateStore } from '@/stores/candidateStore';
 import type { Job } from '@/types';
-import * as hrApi from '@/api/hr';
+import * as candidateApi from '@/api/candidate';
 
 const statusLabels: Record<number, string> = {
   0: '待完善资料',
@@ -18,12 +18,9 @@ export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
 
   useEffect(() => {
-    if (!candidate) {
-      navigate('/');
-      return;
-    }
-    hrApi.getJobs(1, 50).then((res) => setJobs(res.items.filter((j) => j.status === 1)));
-  }, [candidate, navigate]);
+    if (!candidate) return;
+    candidateApi.getJobs().then((jobs) => setJobs(jobs));
+  }, [candidate]);
 
   if (!candidate) return null;
 
@@ -82,7 +79,11 @@ export default function Home() {
           <h2 className="text-lg font-bold text-gray-800 mb-3">正在招聘</h2>
           <div className="space-y-3">
             {jobs.map((job) => (
-              <div key={job.id} className="bg-white rounded-xl p-4 shadow-sm">
+              <div
+                key={job.id}
+                className="bg-white rounded-xl p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => navigate(`/candidate/jobs/${job.id}`)}
+              >
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-medium text-gray-800">{job.name}</h3>

@@ -152,8 +152,8 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
                 # 二进制音频数据，追加到缓冲区
                 audio_buffer.extend(message["bytes"])
 
-    except WebSocketDisconnect:
-        # 连接断开，保存状态
+    except (WebSocketDisconnect, RuntimeError):
+        # 连接断开（含 receive after disconnect 场景），保存状态
         _active_connections.pop(interview_id, None)
         async with async_session_factory() as db:
             try:

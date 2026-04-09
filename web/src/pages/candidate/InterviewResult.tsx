@@ -16,10 +16,7 @@ export default function InterviewResult() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!candidate) {
-      navigate('/');
-      return;
-    }
+    if (!candidate) return;
     setLoading(true);
     candidateApi
       .getInterviewResult(candidate.id, interviewId)
@@ -29,7 +26,7 @@ export default function InterviewResult() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
-  }, [candidate, interviewId, navigate]);
+  }, [candidate, interviewId]);
 
   if (loading) {
     return (

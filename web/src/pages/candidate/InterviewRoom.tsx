@@ -100,6 +100,41 @@ function DeviceCheck({ onReady }: { onReady: () => void }) {
 }
 
 /* ================================================================
+ *  音频格式转换工具
+ * ================================================================ */
+
+/** 将任意浏览器录音 Blob 转为 16-bit PCM WAV（兼容 DashScope ASR） */
+async function convertBlobToWav(blob: Blob): Promise<ArrayBuffer> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioCtx = new AudioContext();
+  try {
+    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+    const pcm = decoded.getChannelData(0); // mono
+    return encodeWav(pcm, decoded.sampleRate);
+  } finally {
+    audioCtx.close();
+  }
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const dataSize = samples.length * 2; // 16-bit = 2 bytes per sample
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const v = new DataView(buffer);
+  const w = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + dataSize, true); w(8, 'WAVE');
+  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, dataSize, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++, off += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return buffer;
+}
+
+/* ================================================================
  *  录音 Hook
  * ================================================================ */
 
@@ -127,8 +162,9 @@ function useRecorder() {
       stream.getTracks().forEach((t) => t.stop());
       if (chunksRef.current.length > 0) {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        const buffer = await blob.arrayBuffer();
-        sendAudio(buffer);
+        // 将 WebM/Opus 转为 WAV 以兼容 DashScope ASR
+        const wavBuffer = await convertBlobToWav(blob);
+        sendAudio(wavBuffer);
       }
       sendAudioEnd();
       setRecording(false);
@@ -184,6 +220,7 @@ export default function InterviewRoom() {
     state, loading, connected, connectWs, disconnect,
     submitAnswer, handleTimeout, abort,
     isRecording, isTtsPlaying, asrText, ttsAudioQueue,
+    reconnecting, reconnectAttempt,
   } = useInterviewStore();
 
   const [deviceReady, setDeviceReady] = useState(false);
@@ -420,18 +457,6 @@ export default function InterviewRoom() {
                 {submitting ? '...' : '发送'}
               </button>
             </div>
-          )}
-
-          {isRecording && (
-            <p className="text-center text-sm text-red-400 mt-2 animate-pulse">
-              录音中，点击停止按钮结束回答
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
           )}
 
           {isRecording && (

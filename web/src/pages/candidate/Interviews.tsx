@@ -4,7 +4,6 @@ import { useCandidateStore } from '@/stores/candidateStore';
 import { useInterviewStore } from '@/stores/interviewStore';
 import type { Interview, Job } from '@/types';
 import * as candidateApi from '@/api/candidate';
-import * as hrApi from '@/api/hr';
 
 const statusMap: Record<number, { label: string; color: string }> = {
   0: { label: '待开始', color: 'bg-gray-100 text-gray-600' },
@@ -24,21 +23,18 @@ export default function Interviews() {
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
-    if (!candidate) {
-      navigate('/');
-      return;
-    }
+    if (!candidate) return;
     setLoading(true);
     Promise.all([
       candidateApi.listInterviews(candidate.id),
-      hrApi.getJobs(1, 50),
+      candidateApi.getJobs(),
     ])
-      .then(([ivs, jobRes]) => {
+      .then(([ivs, jobList]) => {
         setInterviews(ivs);
-        setJobs(jobRes.items.filter((j) => j.status === 1));
+        setJobs(jobList);
       })
       .finally(() => setLoading(false));
-  }, [candidate, navigate]);
+  }, [candidate]);
 
   const handleStart = async (jobId: number) => {
     if (!candidate) return;
