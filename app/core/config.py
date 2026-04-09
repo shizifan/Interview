@@ -24,8 +24,8 @@ class Settings(BaseSettings):
 
     # DashScope (ASR + TTS)
     DASHSCOPE_API_KEY: str = ""
-    ASR_MODEL: str = "paraformer-v2"
-    TTS_MODEL: str = "cosyvoice-v2"
+    ASR_MODEL: str = "fun-asr-realtime"
+    TTS_MODEL: str = "cosyvoice-v1"
     TTS_VOICE: str = "longxiaochun"
     TTS_FORMAT: str = "wav"
 

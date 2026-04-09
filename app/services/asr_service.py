@@ -1,5 +1,6 @@
 import asyncio
 import os
+import struct
 import tempfile
 from abc import ABC, abstractmethod
 from http import HTTPStatus
@@ -42,7 +43,7 @@ class MockASRService(ASRService):
 
 
 class RealASRService(ASRService):
-    """真实ASR服务，使用DashScope Paraformer语音识别"""
+    """真实ASR服务，使用DashScope Fun-ASR语音识别"""
 
     def __init__(self):
         dashscope.api_key = settings.DASHSCOPE_API_KEY
@@ -59,11 +60,37 @@ class RealASRService(ASRService):
         # 默认当作 wav
         return ".wav", "wav"
 
+    @staticmethod
+    def _detect_sample_rate(audio_data: bytes, fmt: str) -> int:
+        """从音频数据中检测采样率，检测失败时返回16000"""
+        if fmt == "wav" and len(audio_data) >= 28:
+            return struct.unpack_from("<I", audio_data, 24)[0]
+        if fmt == "mp3":
+            sample_rates_v1 = [44100, 48000, 32000]
+            sample_rates_v2 = [22050, 24000, 16000]
+            offset = 0
+            if audio_data[:3] == b"ID3" and len(audio_data) >= 10:
+                sz = audio_data[6:10]
+                offset = 10 + (sz[0] << 21 | sz[1] << 14 | sz[2] << 7 | sz[3])
+            while offset < len(audio_data) - 4:
+                if audio_data[offset] == 0xFF and (audio_data[offset + 1] & 0xE0) == 0xE0:
+                    version_bits = (audio_data[offset + 1] >> 3) & 0x03
+                    sr_index = (audio_data[offset + 2] >> 2) & 0x03
+                    if sr_index < 3:
+                        if version_bits == 3:
+                            return sample_rates_v1[sr_index]
+                        if version_bits in (0, 2):
+                            return sample_rates_v2[sr_index]
+                    break
+                offset += 1
+        return 16000
+
     def _sync_transcribe(self, audio_data: bytes) -> str:
         """同步调用DashScope ASR SDK"""
         from dashscope.audio.asr import Recognition
 
         suffix, fmt = self._detect_audio_format(audio_data)
+        sample_rate = self._detect_sample_rate(audio_data, fmt)
 
         # 写入临时文件
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
@@ -74,7 +101,7 @@ class RealASRService(ASRService):
             recognition = Recognition(
                 model=settings.ASR_MODEL,
                 format=fmt,
-                sample_rate=16000,
+                sample_rate=sample_rate,
                 language_hints=["zh", "en"],
                 callback=None,
             )
