@@ -212,6 +212,36 @@ async def get_candidate(
     return success(CandidateProfile.model_validate(candidate))
 
 
+@router.get("/candidates/{candidate_id}/documents")
+async def get_candidate_documents(
+    candidate_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """HR 查看候选人的资质材料"""
+    from app.services import document_service
+    from app.schemas.candidate import DocumentOut
+    docs = await document_service.list_documents(db, candidate_id)
+    return success([DocumentOut.model_validate(d) for d in docs])
+
+
+@router.get("/candidates/{candidate_id}/interviews")
+async def get_candidate_interviews(
+    candidate_id: int,
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """HR 查看候选人的面试记录"""
+    from app.models.interview import Interview
+    result = await db.execute(
+        select(Interview)
+        .where(Interview.candidate_id == candidate_id)
+        .order_by(Interview.id.desc())
+    )
+    interviews = result.scalars().all()
+    return success([InterviewOut.model_validate(i) for i in interviews])
+
+
 @router.post("/candidates/{candidate_id}/invite")
 async def invite_candidate(
     candidate_id: int,

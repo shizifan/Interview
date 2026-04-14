@@ -72,6 +72,12 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
             "data": {"interview_id": interview_id},
         })
 
+        # 发送当前面试状态和 TTS 音频（确保用户听到当前题目）
+        async with async_session_factory() as db:
+            current_state = await interview_service.get_interview_state(db, interview_id)
+            if current_state and current_state.tts_text:
+                await _send_state_and_tts(websocket, current_state, interview_id)
+
         # 消息处理循环
         while True:
             message = await websocket.receive()

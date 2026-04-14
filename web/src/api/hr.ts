@@ -2,7 +2,7 @@ import request from './request';
 import type {
   ApiResponse, PaginatedData, DashboardStats,
   Job, JobCreate, Question, QuestionCreate,
-  Candidate, Interview, InterviewDetail, SystemSettings, ScorePoolEntry,
+  Candidate, Document, Interview, InterviewDetail, SystemSettings, ScorePoolEntry,
 } from '@/types';
 
 // 登录
@@ -69,6 +69,21 @@ export async function getCandidates(page = 1, pageSize = 20, status?: number) {
   const res = await request.get<ApiResponse<PaginatedData<Candidate>>>('/hr/candidates', {
     params: { page, page_size: pageSize, status },
   });
+  return res.data.data;
+}
+
+export async function getCandidate(candidateId: number) {
+  const res = await request.get<ApiResponse<Candidate>>(`/hr/candidates/${candidateId}`);
+  return res.data.data;
+}
+
+export async function getCandidateDocuments(candidateId: number) {
+  const res = await request.get<ApiResponse<Document[]>>(`/hr/candidates/${candidateId}/documents`);
+  return res.data.data;
+}
+
+export async function getCandidateInterviews(candidateId: number) {
+  const res = await request.get<ApiResponse<Interview[]>>(`/hr/candidates/${candidateId}/interviews`);
   return res.data.data;
 }
 

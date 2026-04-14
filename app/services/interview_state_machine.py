@@ -129,11 +129,13 @@ class InterviewStateMachine:
     async def _node_intro(self, state: InterviewGraphState) -> InterviewGraphState:
         """Node A: 开场介绍"""
         total = len(state.questions)
-        state.tts_text = self.INTRO_TEXT.format(total=total)
+        intro_text = self.INTRO_TEXT.format(total=total)
         state.current_node = "ask_question"
         state.message = "面试开场"
-        # 自动进入出题
-        return await self._node_ask_question(state)
+        # 自动进入出题，然后在 tts_text 前拼接开场白
+        state = await self._node_ask_question(state)
+        state.tts_text = intro_text + " " + (state.tts_text or "")
+        return state
 
     async def _node_ask_question(self, state: InterviewGraphState) -> InterviewGraphState:
         """Node B: 出题"""
@@ -262,6 +264,6 @@ class InterviewStateMachine:
         state.status = "completed"
         state.current_node = "finish"
         state.is_finished = True
-        state.tts_text = f"面试结束，感谢您的参与！您的总分为{state.total_score}分。"
+        state.tts_text = "面试结束，感谢您的参与！面试结果将由HR进行评估，请耐心等待通知。"
         state.message = "面试已完成"
         return state

@@ -24,6 +24,7 @@ import HRDashboard from '@/pages/hr/Dashboard';
 import HRJobs from '@/pages/hr/Jobs';
 import HRJobDetail from '@/pages/hr/JobDetail';
 import HRCandidates from '@/pages/hr/Candidates';
+import HRCandidateDetail from '@/pages/hr/CandidateDetail';
 import HRInterviews from '@/pages/hr/HRInterviews';
 import HRScorePool from '@/pages/hr/ScorePool';
 import HRSettings from '@/pages/hr/Settings';
@@ -93,6 +94,7 @@ export const router = createBrowserRouter([
       { path: 'jobs', element: <HRJobs /> },
       { path: 'jobs/:jobId', element: <HRJobDetail /> },
       { path: 'candidates', element: <HRCandidates /> },
+      { path: 'candidates/:candidateId', element: <HRCandidateDetail /> },
       { path: 'interviews', element: <HRInterviews /> },
       { path: 'score-pool', element: <HRScorePool /> },
       { path: 'settings', element: <HRSettings /> },

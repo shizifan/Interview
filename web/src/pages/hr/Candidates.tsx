@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Table, Tag, Input, Button, Modal, Select, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { Table, Tag, Input, Button, Modal, Select, message, Space } from 'antd';
 import type { Candidate, Job } from '@/types';
 import * as hrApi from '@/api/hr';
 
@@ -12,6 +13,7 @@ const statusMap: Record<number, { text: string; color: string }> = {
 };
 
 export default function Candidates() {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -55,7 +57,9 @@ export default function Candidates() {
 
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: '姓名', dataIndex: 'name', render: (v: string) => v || '-' },
+    { title: '姓名', dataIndex: 'name', render: (_v: string, record: Candidate) => (
+      <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/hr/candidates/${record.id}`)}>{record.name || record.phone}</Button>
+    ) },
     { title: '手机号', dataIndex: 'phone' },
     { title: '性别', dataIndex: 'gender', width: 60, render: (v: number) => v === 1 ? '男' : '女' },
     { title: '驾龄(年)', dataIndex: 'work_experience', width: 80 },
@@ -66,11 +70,16 @@ export default function Candidates() {
     },
     { title: '注册时间', dataIndex: 'created_at', width: 180, render: (v: string) => new Date(v).toLocaleString('zh-CN') },
     {
-      title: '操作', width: 120,
+      title: '操作', width: 160,
       render: (_: unknown, record: Candidate) => (
-        <Button type="link" size="small" onClick={() => openInvite(record)}>
-          邀约面试
-        </Button>
+        <Space>
+          <Button type="link" size="small" onClick={() => navigate(`/hr/candidates/${record.id}`)}>
+            查看
+          </Button>
+          <Button type="link" size="small" onClick={() => openInvite(record)}>
+            邀约面试
+          </Button>
+        </Space>
       ),
     },
   ];

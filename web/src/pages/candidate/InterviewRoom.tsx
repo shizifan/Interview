@@ -307,9 +307,9 @@ export default function InterviewRoom() {
     }, 1000);
   }, [sendMessage]);
 
-  // 当节点为 wait_asr 且 TTS 播放完毕时才启动倒计时
+  // 当节点为 wait_asr 且 TTS 播放完毕 且 WebSocket 已连接时才启动倒计时
   useEffect(() => {
-    if (state?.current_node === 'wait_asr' && !isTtsPlaying) {
+    if (state?.current_node === 'wait_asr' && !isTtsPlaying && connected) {
       resetTimer();
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -317,7 +317,7 @@ export default function InterviewRoom() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [state?.current_node, isTtsPlaying, resetTimer]);
+  }, [state?.current_node, isTtsPlaying, connected, resetTimer]);
 
   // 面试结束自动跳转
   useEffect(() => {
