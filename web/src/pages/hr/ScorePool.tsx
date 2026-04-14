@@ -19,7 +19,7 @@ export default function ScorePool() {
   useEffect(() => {
     if (selectedJobId === null) return;
     setLoading(true);
-    hrApi.getScorePool(selectedJobId).then(setEntries).finally(() => setLoading(false));
+    hrApi.getScorePool(selectedJobId).then((res) => setEntries(res.items)).finally(() => setLoading(false));
   }, [selectedJobId]);
 
   const columns = [

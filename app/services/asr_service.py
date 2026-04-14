@@ -1,9 +1,8 @@
 import asyncio
-import os
 import struct
-import tempfile
+import threading
+import time
 from abc import ABC, abstractmethod
-from http import HTTPStatus
 
 import dashscope
 import structlog
@@ -32,102 +31,133 @@ class MockASRService(ASRService):
     _index = 0
 
     async def transcribe(self, audio_data: bytes) -> str:
-        # 模拟少量音频数据=无效输入
         if len(audio_data) < 100:
             return ""
-
-        await asyncio.sleep(0.3)  # 模拟处理延迟
+        await asyncio.sleep(0.3)
         response = self._responses[MockASRService._index % len(self._responses)]
         MockASRService._index += 1
         return response
 
 
 class RealASRService(ASRService):
-    """真实ASR服务，使用DashScope Fun-ASR语音识别"""
+    """真实ASR服务，使用DashScope Fun-ASR流式语音识别"""
 
     def __init__(self):
         dashscope.api_key = settings.DASHSCOPE_API_KEY
 
     @staticmethod
-    def _detect_audio_format(audio_data: bytes) -> tuple[str, str]:
-        """根据magic bytes检测音频格式，返回(后缀, format参数)"""
-        if audio_data[:4] == b"RIFF":
-            return ".wav", "wav"
-        if audio_data[:4] == b"\x1a\x45\xdf\xa3":
-            return ".webm", "webm"
-        if audio_data[:3] == b"ID3" or audio_data[:2] == b"\xff\xfb":
-            return ".mp3", "mp3"
-        # 默认当作 wav
-        return ".wav", "wav"
-
-    @staticmethod
-    def _detect_sample_rate(audio_data: bytes, fmt: str) -> int:
-        """从音频数据中检测采样率，检测失败时返回16000"""
-        if fmt == "wav" and len(audio_data) >= 28:
-            return struct.unpack_from("<I", audio_data, 24)[0]
-        if fmt == "mp3":
-            sample_rates_v1 = [44100, 48000, 32000]
-            sample_rates_v2 = [22050, 24000, 16000]
-            offset = 0
-            if audio_data[:3] == b"ID3" and len(audio_data) >= 10:
-                sz = audio_data[6:10]
-                offset = 10 + (sz[0] << 21 | sz[1] << 14 | sz[2] << 7 | sz[3])
-            while offset < len(audio_data) - 4:
-                if audio_data[offset] == 0xFF and (audio_data[offset + 1] & 0xE0) == 0xE0:
-                    version_bits = (audio_data[offset + 1] >> 3) & 0x03
-                    sr_index = (audio_data[offset + 2] >> 2) & 0x03
-                    if sr_index < 3:
-                        if version_bits == 3:
-                            return sample_rates_v1[sr_index]
-                        if version_bits in (0, 2):
-                            return sample_rates_v2[sr_index]
-                    break
-                offset += 1
-        return 16000
+    def _parse_wav_header(audio_data: bytes) -> dict:
+        """解析WAV头获取音频元信息，同时返回PCM数据偏移量"""
+        info = {"valid": False}
+        if len(audio_data) < 44 or audio_data[:4] != b"RIFF":
+            return info
+        info["valid"] = True
+        info["channels"] = struct.unpack_from("<H", audio_data, 22)[0]
+        info["sample_rate"] = struct.unpack_from("<I", audio_data, 24)[0]
+        info["bits_per_sample"] = struct.unpack_from("<H", audio_data, 34)[0]
+        info["data_size"] = struct.unpack_from("<I", audio_data, 40)[0]
+        info["pcm_offset"] = 44
+        sr = info["sample_rate"]
+        ch = info["channels"]
+        bps = info["bits_per_sample"]
+        if sr > 0 and ch > 0 and bps > 0:
+            info["duration_s"] = round(
+                info["data_size"] / (sr * ch * bps // 8), 2
+            )
+        # 计算 PCM 峰值电平（抽样前 4000 样本）
+        if bps == 16 and len(audio_data) > 44:
+            pcm_bytes = audio_data[44 : 44 + 8000]  # 前 4000 个 int16 样本
+            max_val = 0
+            for i in range(0, len(pcm_bytes) - 1, 2):
+                val = abs(struct.unpack_from("<h", pcm_bytes, i)[0])
+                if val > max_val:
+                    max_val = val
+            info["peak_level"] = max_val
+        return info
 
     def _sync_transcribe(self, audio_data: bytes) -> str:
-        """同步调用DashScope ASR SDK"""
-        from dashscope.audio.asr import Recognition
+        """使用DashScope流式ASR识别音频（start → send_audio_frame → stop）"""
+        from dashscope.audio.asr import (
+            Recognition,
+            RecognitionCallback,
+            RecognitionResult,
+        )
 
-        suffix, fmt = self._detect_audio_format(audio_data)
-        sample_rate = self._detect_sample_rate(audio_data, fmt)
-
-        # 写入临时文件
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        try:
-            with os.fdopen(tmp_fd, "wb") as f:
-                f.write(audio_data)
-
-            recognition = Recognition(
-                model=settings.ASR_MODEL,
-                format=fmt,
+        # 解析WAV获取采样率和PCM数据
+        wav_info = self._parse_wav_header(audio_data)
+        if wav_info["valid"]:
+            sample_rate = wav_info["sample_rate"]
+            pcm_data = audio_data[wav_info["pcm_offset"] :]
+            audio_format = "pcm"
+            logger.info(
+                "asr_wav_info",
                 sample_rate=sample_rate,
-                language_hints=["zh", "en"],
-                callback=None,
+                channels=wav_info.get("channels"),
+                bits=wav_info.get("bits_per_sample"),
+                duration_s=wav_info.get("duration_s"),
+                peak_level=wav_info.get("peak_level"),
+                pcm_bytes=len(pcm_data),
             )
-            result = recognition.call(tmp_path)
+        else:
+            # 非WAV格式，整段发送
+            sample_rate = 16000
+            pcm_data = audio_data
+            audio_format = "wav"
+            logger.warning("asr_non_wav_input", data_len=len(audio_data))
 
-            if result.status_code == HTTPStatus.OK:
-                sentences = result.get_sentence()
-                if sentences:
-                    # get_sentence() 返回句子列表，拼接所有文本
-                    texts = []
-                    for s in sentences:
-                        text = s.get("text", "") if isinstance(s, dict) else str(s)
+        # 收集识别结果
+        sentences: list[str] = []
+        done_event = threading.Event()
+        asr_error: list[str] = []
+
+        class _Callback(RecognitionCallback):
+            def on_event(self, result: RecognitionResult) -> None:
+                sentence = result.get_sentence()
+                if isinstance(sentence, dict):
+                    if RecognitionResult.is_sentence_end(sentence):
+                        text = sentence.get("text", "")
                         if text:
-                            texts.append(text)
-                    return "".join(texts)
-                return ""
-            else:
-                logger.error(
-                    "asr_api_error",
-                    status_code=result.status_code,
-                    message=getattr(result, "message", ""),
-                )
-                raise RuntimeError(f"ASR API 错误: {result.status_code}")
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+                            sentences.append(text)
+                            logger.info("asr_sentence", text=text)
+
+            def on_complete(self) -> None:
+                logger.info("asr_stream_complete", sentence_count=len(sentences))
+                done_event.set()
+
+            def on_error(self, result: RecognitionResult) -> None:
+                msg = getattr(result, "message", str(result))
+                asr_error.append(msg)
+                logger.error("asr_stream_error", message=msg)
+                done_event.set()
+
+        callback = _Callback()
+        recognition = Recognition(
+            model=settings.ASR_MODEL,
+            format=audio_format,
+            sample_rate=sample_rate,
+            callback=callback,
+        )
+
+        recognition.start()
+
+        # 分块发送 PCM 数据（每块 3200 字节 ≈ 200ms @16kHz 16bit mono）
+        chunk_size = 3200
+        offset = 0
+        while offset < len(pcm_data):
+            chunk = pcm_data[offset : offset + chunk_size]
+            recognition.send_audio_frame(chunk)
+            offset += chunk_size
+            time.sleep(0.05)
+
+        recognition.stop()
+
+        # 等待识别完成
+        done_event.wait(timeout=30)
+
+        if asr_error:
+            raise RuntimeError(f"ASR API 错误: {asr_error[0]}")
+
+        return "".join(sentences)
 
     async def transcribe(self, audio_data: bytes) -> str:
         if len(audio_data) < 1000:
@@ -135,7 +165,7 @@ class RealASRService(ASRService):
 
         try:
             text = await asyncio.to_thread(self._sync_transcribe, audio_data)
-            logger.info("asr_result", text_length=len(text))
+            logger.info("asr_result", text=text[:200] if text else "(empty)")
             return text
         except Exception as e:
             logger.error("asr_transcribe_error", error=str(e))

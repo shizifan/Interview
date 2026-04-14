@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCandidateStore } from '@/stores/candidateStore';
 import { useInterviewStore } from '@/stores/interviewStore';
 import type { Interview, Job } from '@/types';
 import * as candidateApi from '@/api/candidate';
+import { groupInterviewsByJob } from '@/utils/groupInterviews';
 
 const statusMap: Record<number, { label: string; color: string }> = {
   0: { label: '待开始', color: 'bg-gray-100 text-gray-600' },
@@ -13,6 +14,26 @@ const statusMap: Record<number, { label: string; color: string }> = {
   4: { label: '已过期', color: 'bg-gray-100 text-gray-400' },
 };
 
+function InterviewRow({ iv, onClick }: { iv: Interview; onClick: () => void }) {
+  const st = statusMap[iv.status] || statusMap[0];
+  const clickable = iv.status === 1 || iv.status === 2;
+  return (
+    <div
+      className={`flex items-center justify-between py-2 px-3 rounded-lg ${clickable ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+      onClick={clickable ? onClick : undefined}
+    >
+      <div className="flex items-center gap-2 text-sm text-gray-600">
+        <span>#{iv.id}</span>
+        <span>{new Date(iv.created_at).toLocaleString('zh-CN')}</span>
+        {iv.status === 2 && iv.total_score > 0 && (
+          <span className="text-green-600">{iv.total_score}分</span>
+        )}
+      </div>
+      <span className={`text-xs px-2 py-0.5 rounded-full ${st.color}`}>{st.label}</span>
+    </div>
+  );
+}
+
 export default function Interviews() {
   const { candidate } = useCandidateStore();
   const { startInterview } = useInterviewStore();
@@ -21,6 +42,12 @@ export default function Interviews() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
+
+  const groups = useMemo(
+    () => groupInterviewsByJob(interviews, jobs),
+    [interviews, jobs],
+  );
 
   useEffect(() => {
     if (!candidate) return;
@@ -52,8 +79,9 @@ export default function Interviews() {
     }
   };
 
-  const handleResume = (interviewId: number) => {
-    navigate(`/interview/${interviewId}`);
+  const navigateInterview = (iv: Interview) => {
+    if (iv.status === 2) navigate(`/interview/${iv.id}/result`);
+    else if (iv.status === 1) navigate(`/interview/${iv.id}`);
   };
 
   if (!candidate) return null;
@@ -91,37 +119,70 @@ export default function Interviews() {
         <h3 className="text-sm font-medium text-gray-500 mb-2">面试记录</h3>
         {loading ? (
           <div className="text-center text-gray-400 py-8">加载中...</div>
-        ) : interviews.length === 0 ? (
+        ) : groups.length === 0 ? (
           <div className="text-center text-gray-400 py-8 bg-white rounded-xl shadow-sm">暂无面试记录</div>
         ) : (
           <div className="space-y-2">
-            {interviews.map((iv) => {
-              const st = statusMap[iv.status] || statusMap[0];
+            {groups.map((group) => {
+              const rep = group.representative;
+              const st = statusMap[rep.status] || statusMap[0];
+              const clickable = rep.status === 1 || rep.status === 2;
+              const expanded = expandedJobId === group.job_id;
+              const hasHistory = group.history.length > 1;
+
               return (
-                <div
-                  key={iv.id}
-                  className="bg-white rounded-xl p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => {
-                    if (iv.status === 2) navigate(`/interview/${iv.id}/result`);
-                    else if (iv.status === 1) handleResume(iv.id);
-                  }}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="font-medium text-gray-800">面试 #{iv.id}</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {new Date(iv.created_at).toLocaleString('zh-CN')}
+                <div key={group.job_id} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  {/* 主卡片 */}
+                  <div
+                    className={`p-4 ${clickable ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors`}
+                    onClick={() => clickable && navigateInterview(rep)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-medium text-gray-800">{group.job_name}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {new Date(rep.created_at).toLocaleString('zh-CN')}
+                          {hasHistory && (
+                            <span className="ml-2 text-gray-400">共{group.history.length}次</span>
+                          )}
+                        </div>
                       </div>
+                      <span className={`text-xs px-2 py-1 rounded-full ${st.color}`}>
+                        {st.label}
+                      </span>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${st.color}`}>
-                      {st.label}
-                    </span>
+                    {rep.status === 2 && (
+                      <div className="mt-2 text-sm text-green-600">
+                        得分: {rep.total_score}分 &gt;
+                      </div>
+                    )}
+                    {rep.status === 1 && (
+                      <div className="mt-2 text-sm text-orange-600">点击继续面试 &gt;</div>
+                    )}
                   </div>
-                  {iv.status === 2 && (
-                    <div className="mt-2 text-sm text-blue-600">得分: {iv.total_score}分 &gt;</div>
-                  )}
-                  {iv.status === 1 && (
-                    <div className="mt-2 text-sm text-orange-600">点击继续面试 &gt;</div>
+
+                  {/* 展开历史 */}
+                  {hasHistory && (
+                    <>
+                      <button
+                        onClick={() => setExpandedJobId(expanded ? null : group.job_id)}
+                        className="w-full text-center text-xs text-gray-400 hover:text-gray-600 py-2 border-t border-gray-100 transition-colors"
+                      >
+                        {expanded ? '收起历史' : '查看历史'}
+                        <span className="ml-1">{expanded ? '▴' : '▾'}</span>
+                      </button>
+                      {expanded && (
+                        <div className="border-t border-gray-100 px-2 py-1 space-y-0.5">
+                          {group.history.map((iv) => (
+                            <InterviewRow
+                              key={iv.id}
+                              iv={iv}
+                              onClick={() => navigateInterview(iv)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               );

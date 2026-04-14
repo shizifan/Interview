@@ -106,14 +106,46 @@ function DeviceCheck({ onReady }: { onReady: () => void }) {
 /** 将任意浏览器录音 Blob 转为 16-bit PCM WAV（兼容 DashScope ASR） */
 async function convertBlobToWav(blob: Blob): Promise<ArrayBuffer> {
   const arrayBuffer = await blob.arrayBuffer();
-  const audioCtx = new AudioContext();
+  console.log('[ASR] convertBlobToWav: input blob size =', blob.size, 'type =', blob.type);
+
+  // 先用原始采样率解码
+  const nativeCtx = new AudioContext();
+  let decoded: AudioBuffer;
   try {
-    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
-    const pcm = decoded.getChannelData(0); // mono
-    return encodeWav(pcm, decoded.sampleRate);
+    decoded = await nativeCtx.decodeAudioData(arrayBuffer.slice(0));
   } finally {
-    audioCtx.close();
+    nativeCtx.close();
   }
+
+  console.log('[ASR] decoded: sampleRate =', decoded.sampleRate,
+    'duration =', decoded.duration.toFixed(2) + 's',
+    'channels =', decoded.numberOfChannels,
+    'samples =', decoded.length);
+
+  // 使用 OfflineAudioContext 重采样到 16kHz
+  const targetRate = 16000;
+  const targetLength = Math.ceil(decoded.duration * targetRate);
+  const offlineCtx = new OfflineAudioContext(1, targetLength, targetRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offlineCtx.destination);
+  source.start(0);
+  const resampled = await offlineCtx.startRendering();
+
+  const pcm = resampled.getChannelData(0);
+  console.log('[ASR] resampled: sampleRate =', resampled.sampleRate,
+    'samples =', pcm.length,
+    'duration =', (pcm.length / resampled.sampleRate).toFixed(2) + 's');
+
+  // 检查峰值电平（调试用）
+  let peak = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const abs = Math.abs(pcm[i]);
+    if (abs > peak) peak = abs;
+  }
+  console.log('[ASR] peak level =', peak.toFixed(4), peak < 0.01 ? '(WARNING: near silence!)' : '(OK)');
+
+  return encodeWav(pcm, resampled.sampleRate);
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
@@ -162,9 +194,13 @@ function useRecorder() {
       stream.getTracks().forEach((t) => t.stop());
       if (chunksRef.current.length > 0) {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        // 将 WebM/Opus 转为 WAV 以兼容 DashScope ASR
-        const wavBuffer = await convertBlobToWav(blob);
-        sendAudio(wavBuffer);
+        try {
+          const wavBuffer = await convertBlobToWav(blob);
+          console.log('[ASR] WAV buffer ready, size =', wavBuffer.byteLength);
+          sendAudio(wavBuffer);
+        } catch (err) {
+          console.error('[ASR] convertBlobToWav failed:', err);
+        }
       }
       sendAudioEnd();
       setRecording(false);
@@ -218,7 +254,7 @@ export default function InterviewRoom() {
   const navigate = useNavigate();
   const {
     state, loading, connected, connectWs, disconnect,
-    submitAnswer, handleTimeout, abort,
+    submitAnswer, abort, sendMessage,
     isRecording, isTtsPlaying, asrText, ttsAudioQueue,
     reconnecting, reconnectAttempt,
   } = useInterviewStore();
@@ -255,7 +291,7 @@ export default function InterviewRoom() {
     }
   }, [ttsAudioQueue.length, isTtsPlaying, playNext]);
 
-  // 倒计时
+  // 倒计时 — 通过 WebSocket 发送超时消息
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     setTimeLeft(30);
@@ -263,17 +299,17 @@ export default function InterviewRoom() {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
-          handleTimeout();
+          sendMessage({ type: 'timeout', data: {} });
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-  }, [handleTimeout]);
+  }, [sendMessage]);
 
-  // 当节点变为 wait_asr 时启动倒计时
+  // 当节点为 wait_asr 且 TTS 播放完毕时才启动倒计时
   useEffect(() => {
-    if (state?.current_node === 'wait_asr') {
+    if (state?.current_node === 'wait_asr' && !isTtsPlaying) {
       resetTimer();
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -281,7 +317,7 @@ export default function InterviewRoom() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [state?.current_node, resetTimer]);
+  }, [state?.current_node, isTtsPlaying, resetTimer]);
 
   // 面试结束自动跳转
   useEffect(() => {
@@ -366,10 +402,14 @@ export default function InterviewRoom() {
           AI
         </div>
 
-        {/* 消息/题目文本 */}
+        {/* 当前题目（始终显示） */}
         <div className="text-center max-w-md">
-          {state?.tts_text && (
-            <p className="text-xl leading-relaxed mb-4">{state.tts_text}</p>
+          {state?.question_text && (
+            <p className="text-xl leading-relaxed mb-4">{state.question_text}</p>
+          )}
+          {/* tts_text 与题目不同时额外显示（如追问、没听清提示等） */}
+          {state?.tts_text && state.tts_text !== state.question_text && (
+            <p className="text-base text-blue-300 mb-4">{state.tts_text}</p>
           )}
           {state?.message && (
             <p className="text-sm text-gray-400">{state.message}</p>
@@ -390,10 +430,10 @@ export default function InterviewRoom() {
         {/* 面试结束 */}
         {isFinished && (
           <div className="mt-8 text-center">
-            <div className="text-3xl font-bold text-green-400 mb-2">
-              {state?.score ?? 0}分
+            <div className="text-2xl font-bold text-green-400 mb-2">
+              面试已完成
             </div>
-            <p className="text-gray-400">正在跳转到结果页...</p>
+            <p className="text-gray-400">感谢您的参与，结果将由HR审核</p>
           </div>
         )}
       </div>

@@ -10,8 +10,8 @@ export default function InterviewResult() {
   const { candidate } = useCandidateStore();
   const interviewId = Number(paramId);
 
-  const [interview, setInterview] = useState<Interview | null>(null);
-  const [report, setReport] = useState<string>('');
+  const [_interview, setInterview] = useState<Interview | null>(null);
+  const [_report, setReport] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -54,23 +54,15 @@ export default function InterviewResult() {
     <div className="min-h-screen bg-gray-50">
       {/* 头部 */}
       <div className="bg-blue-600 text-white px-4 py-8 text-center">
-        <h1 className="text-xl font-bold mb-2">面试结果</h1>
-        <div className="text-5xl font-bold mb-1">{interview?.total_score ?? 0}</div>
-        <div className="text-blue-100">总分</div>
+        <h1 className="text-xl font-bold mb-2">面试已完成</h1>
+        <div className="text-blue-100">感谢您的参与，结果将由HR审核</div>
       </div>
 
       {/* 报告 */}
       <div className="max-w-lg mx-auto px-4 py-6">
-        {report ? (
-          <div className="bg-white rounded-xl p-4 shadow-sm">
-            <h2 className="font-bold text-gray-800 mb-3">面试报告</h2>
-            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
-              {report}
-            </div>
-          </div>
-        ) : (
-          <div className="text-center text-gray-400 py-8">暂无详细报告</div>
-        )}
+        <div className="bg-white rounded-xl p-4 shadow-sm text-center text-gray-500 py-8">
+          面试结果将由HR进行评估，请耐心等待通知
+        </div>
 
         <button
           onClick={() => navigate('/candidate/interviews')}

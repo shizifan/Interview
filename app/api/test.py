@@ -38,13 +38,5 @@ async def quick_start(db: AsyncSession = Depends(get_db)):
         db, candidate.id, job.id
     )
 
-    return success(InterviewState(
-        interview_id=state.interview_id,
-        current_node=state.current_node,
-        current_question_index=state.current_question_index,
-        total_questions=len(state.questions),
-        tts_text=state.tts_text,
-        status=state.status,
-        score=state.total_score,
-        message=state.message,
-    ))
+    from app.api.interview import _to_interview_state
+    return success(_to_interview_state(state))

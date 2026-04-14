@@ -109,6 +109,13 @@ export interface Interview {
   updated_at: string;
 }
 
+export interface InterviewGroup {
+  job_id: number;
+  job_name: string;
+  representative: Interview;
+  history: Interview[];
+}
+
 export interface InterviewAnswer {
   id: number;
   interview_id: number;
@@ -134,8 +141,8 @@ export interface InterviewState {
   current_question_index: number;
   total_questions: number;
   tts_text: string | null;
+  question_text: string | null;
   status: string;
-  score: number;
   message: string | null;
 }
 

@@ -80,7 +80,6 @@ async def apply_job(
         total_questions=len(state.questions),
         tts_text=state.tts_text,
         status=state.status,
-        score=state.total_score,
         message=state.message,
     ))
 
@@ -169,7 +168,8 @@ async def list_interviews(
         .order_by(Interview.id.desc())
     )
     interviews = result.scalars().all()
-    return success([InterviewOut.model_validate(i) for i in interviews])
+    from app.schemas.interview import CandidateInterviewOut
+    return success([CandidateInterviewOut.model_validate(i) for i in interviews])
 
 
 @router.get("/candidates/{candidate_id}/interviews/{interview_id}/result")
@@ -192,6 +192,11 @@ async def get_interview_result(
         return {"code": 603, "message": "面试尚未完成", "data": None}
 
     return success({
-        "interview": InterviewOut.model_validate(interview),
-        "report": interview.report_content,
+        "interview": {
+            "id": interview.id,
+            "candidate_id": interview.candidate_id,
+            "job_id": interview.job_id,
+            "status": interview.status,
+            "created_at": str(interview.created_at) if interview.created_at else None,
+        },
     })

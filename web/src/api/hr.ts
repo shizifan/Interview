@@ -103,6 +103,6 @@ export async function updateSettings(data: Record<string, string>) {
 
 // 评分池
 export async function getScorePool(jobId: number) {
-  const res = await request.get<ApiResponse<ScorePoolEntry[]>>('/hr/score-pool', { params: { job_id: jobId } });
+  const res = await request.get<ApiResponse<PaginatedData<ScorePoolEntry>>>('/hr/score-pool', { params: { job_id: jobId } });
   return res.data.data;
 }

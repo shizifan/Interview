@@ -21,6 +21,12 @@ async def _send_state_and_tts(
     interview_id: int,
 ) -> None:
     """发送状态更新，如果有 tts_text 则合成并发送音频"""
+    # 提取当前题目文本
+    question_text = None
+    idx = state.current_question_index
+    if state.questions and 0 <= idx < len(state.questions):
+        question_text = state.questions[idx].get("content")
+
     await websocket.send_json({
         "type": "state_update",
         "data": {
@@ -28,8 +34,8 @@ async def _send_state_and_tts(
             "current_question_index": state.current_question_index,
             "total_questions": len(state.questions),
             "tts_text": state.tts_text,
+            "question_text": question_text,
             "status": state.status,
-            "score": state.total_score,
             "message": state.message,
         },
     })
@@ -82,15 +88,11 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
                             asr = get_asr_service()
 
                             if audio_buffer:
-                                # 有实际音频数据，进行ASR识别
                                 audio_data = bytes(audio_buffer)
                                 audio_buffer.clear()
                                 text = await asr.transcribe(audio_data)
                             else:
-                                # 兼容文本模式（前端直接传answer_text）
                                 text = data.get("answer_text", "")
-                                if not text:
-                                    text = await asr.transcribe(b"")
 
                             logger.info(
                                 "asr_complete",
@@ -113,7 +115,6 @@ async def interview_websocket(websocket: WebSocket, interview_id: int):
                                 await websocket.send_json({
                                     "type": "interview_end",
                                     "data": {
-                                        "total_score": state.total_score,
                                         "status": "completed",
                                     },
                                 })

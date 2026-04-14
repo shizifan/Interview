@@ -26,3 +26,6 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 uv.lock
+
+# Test output files
+*.wav

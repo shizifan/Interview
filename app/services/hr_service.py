@@ -250,6 +250,8 @@ async def list_score_pool(db: AsyncSession, job_id: int, page: int = 1, page_siz
             "candidate_id": entry.candidate_id,
             "job_id": entry.job_id,
             "doc_score": entry.doc_score,
+            "interview_score": entry.interview_score,
+            "total_score": entry.total_score,
             "rank": entry.rank,
             "is_invited": entry.is_invited,
             "candidate_name": c.name if c else None,
