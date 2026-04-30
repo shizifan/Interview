@@ -27,6 +27,7 @@ import HRCandidates from '@/pages/hr/Candidates';
 import HRCandidateDetail from '@/pages/hr/CandidateDetail';
 import HRInterviews from '@/pages/hr/HRInterviews';
 import HRScorePool from '@/pages/hr/ScorePool';
+import HRIntelligentFilter from '@/pages/hr/IntelligentFilter';
 import HRSettings from '@/pages/hr/Settings';
 
 function RequireCandidateAuth({ children }: { children: React.ReactNode }) {
@@ -98,6 +99,7 @@ export const router = createBrowserRouter([
       { path: 'interviews', element: <HRInterviews /> },
       { path: 'score-pool', element: <HRScorePool /> },
       { path: 'settings', element: <HRSettings /> },
+      { path: 'intelligent-filter', element: <HRIntelligentFilter /> },
     ],
   },
 ]);

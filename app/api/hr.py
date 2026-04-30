@@ -253,6 +253,38 @@ async def invite_candidate(
     return success(InterviewOut.model_validate(interview))
 
 
+@router.post("/candidates/intelligent-filter/parse")
+async def parse_filter_rule(
+    natural_language: str = Query(..., description="自然语言筛选描述"),
+    _user: HRUser = Depends(get_current_hr_user),
+):
+    """将自然语言解析为筛选规则（不执行，仅解析并返回规则供HR确认）"""
+    from app.services.llm_service import get_llm_service
+    llm = get_llm_service()
+    rules = await llm.parse_candidate_filter(natural_language)
+    return success(rules)
+
+
+@router.post("/candidates/intelligent-filter/execute")
+async def execute_intelligent_filter(
+    filter_rules: dict,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _user: HRUser = Depends(get_current_hr_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """执行智能筛选，根据确认的规则返回符合条件的候选人，支持分页"""
+    candidates, total = await hr_service.filter_candidates(
+        db, filter_rules, page=page, page_size=page_size
+    )
+    return success({
+        "items": [CandidateProfile.model_validate(c) for c in candidates],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
+
+
 # ===== 面试管理 =====
 
 @router.get("/interviews")

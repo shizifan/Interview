@@ -128,6 +128,12 @@ async def list_candidates(db: AsyncSession, status: int | None = None, page: int
     return result.scalars().all(), total
 
 
+async def filter_candidates(db: AsyncSession, filter_rules: dict, page: int = 1, page_size: int = 20) -> tuple[list[Candidate], int]:
+    """根据筛选规则过滤候选人，返回(列表, 总数)"""
+    from app.services.candidate_filter_service import execute_filter
+    return await execute_filter(db, filter_rules, page=page, page_size=page_size)
+
+
 async def invite_candidate(db: AsyncSession, candidate_id: int, job_id: int) -> Interview:
     """为候选人创建面试邀请"""
     interview = Interview(candidate_id=candidate_id, job_id=job_id, status=0)

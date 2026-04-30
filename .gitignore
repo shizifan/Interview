@@ -29,3 +29,7 @@ uv.lock
 
 # Test output files
 *.wav
+
+# User uploaded files
+uploads/
+uploads_backup/

@@ -27,6 +27,11 @@ class LLMService(ABC):
     async def generate_report(self, interview_data: dict) -> str:
         ...
 
+    @abstractmethod
+    async def parse_candidate_filter(self, natural_language: str) -> dict:
+        """将自然语言解析为候选人筛选规则JSON"""
+        ...
+
 
 class MockLLMService(LLMService):
     """Mock LLM服务，使用关键词匹配和模板"""
@@ -71,6 +76,98 @@ class MockLLMService(LLMService):
             return "replay_request"
 
         return "normal"
+
+    async def parse_candidate_filter(self, natural_language: str) -> dict:
+        """Mock模式：基于关键词匹配生成简化版筛选规则"""
+        text = natural_language.lower()
+        conditions = []
+        desc_parts = []
+
+        # 驾龄检测
+        import re
+        years_match = re.search(r'(\d+)\s*年', text)
+        if '驾龄' in text or '驾驶经验' in text or '开车' in text:
+            years = int(years_match.group(1)) if years_match else 3
+            conditions.append({
+                "field": "work_experience",
+                "operator": "gte",
+                "value": years,
+                "description": f"驾龄(工作经验) >= {years}年"
+            })
+            desc_parts.append(f"驾龄>={years}年")
+
+        # 驾照类型检测
+        license_types = ['a1', 'a2', 'a3', 'b1', 'b2', 'c1', 'c2', 'c3']
+        for lt in license_types:
+            if lt in text:
+                conditions.append({
+                    "field": "qualification_detail.license_type",
+                    "operator": "contains",
+                    "value": lt.upper(),
+                    "description": f"准驾车型包含{lt.upper()}"
+                })
+                desc_parts.append(f"准驾车型含{lt.upper()}")
+                break
+
+        # 资格证有效期检测
+        if '资格证' in text and ('有效' in text or '有效期' in text):
+            conditions.append({
+                "field": "qualification_detail.qualification_valid",
+                "operator": "gte",
+                "value": "today",
+                "description": "资格证在有效期内"
+            })
+            desc_parts.append("资格证在有效期内")
+
+        # 性别检测
+        if '男' in text and '女' not in text:
+            conditions.append({
+                "field": "gender", "operator": "eq", "value": 1,
+                "description": "性别为男"
+            })
+            desc_parts.append("性别为男")
+        elif '女' in text and '男' not in text:
+            conditions.append({
+                "field": "gender", "operator": "eq", "value": 2,
+                "description": "性别为女"
+            })
+            desc_parts.append("性别为女")
+
+        # 学历检测
+        for edu in ['本科', '大专', '高中', '中专', '硕士', '博士']:
+            if edu in text:
+                conditions.append({
+                    "field": "education", "operator": "eq", "value": edu,
+                    "description": f"学历为{edu}"
+                })
+                desc_parts.append(f"学历为{edu}")
+                break
+
+        # 年龄检测
+        age_match = re.search(r'(\d+)\s*岁', text)
+        if age_match:
+            age = int(age_match.group(1))
+            conditions.append({
+                "field": "age", "operator": "lte" if '以下' in text or '小于' in text else "gte",
+                "value": age,
+                "description": f"年龄{'<=' if '以下' in text or '小于' in text else '>='}{age}岁"
+            })
+            desc_parts.append(f"年龄{'<=' if '以下' in text or '小于' in text else '>='}{age}岁")
+
+        if not conditions:
+            return {
+                "conditions": [],
+                "logic": "AND",
+                "description": "Mock模式未能解析筛选条件，请尝试更具体的描述。例如：\"找出驾龄3年以上、持有A2驾照的候选人\"",
+                "error": None
+            }
+
+        return {
+            "conditions": conditions,
+            "logic": "AND",
+            "description": "Mock模式解析：" + "，且".join(desc_parts),
+            "error": None
+        }
 
     async def generate_report(self, interview_data: dict) -> str:
         candidate_name = interview_data.get("candidate_name", "候选人")
@@ -300,6 +397,64 @@ class RealLLMService(LLMService):
                 f"- **面试总分**: {total_score}/100\n\n"
                 f"*注：AI报告生成服务异常，此为简要报告。*\n"
             )
+
+    async def parse_candidate_filter(self, natural_language: str) -> dict:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个蓝领岗位候选人筛选规则解析助手。你的任务是将自然语言描述转换为结构化的筛选规则JSON。\n\n"
+                    "候选人表字段包括：\n"
+                    "- id: 主键ID\n"
+                    "- name: 姓名\n"
+                    "- phone: 手机号\n"
+                    "- id_card: 身份证号\n"
+                    "- gender: 性别(1=男,2=女)\n"
+                    "- age: 年龄\n"
+                    "- education: 学历\n"
+                    "- work_experience: 工作经验年数(驾龄)\n"
+                    "- address: 地址\n"
+                    "- status: 状态(0=待完善,1=材料已提交,2=面试中,3=已完成,4=已淘汰)\n"
+                    "- total_score: 总分\n"
+                    "- qualification_detail: 资质详情(JSON格式，包含license_type准驾车型、license_date初次领证日期、qualification_date资格证有效期等)\n\n"
+                    "支持的比较操作符：\n"
+                    "- eq: 等于\n"
+                    "- ne: 不等于\n"
+                    "- gt: 大于\n"
+                    "- gte: 大于等于\n"
+                    "- lt: 小于\n"
+                    "- lte: 小于等于\n"
+                    "- contains: 包含(用于字符串)\n"
+                    "- in_list: 在列表中\n\n"
+                    "额外支持 limit 字段：\n"
+                    "- limit: 整数，表示返回前N条结果。当用户提到\"前N名\",\"前N个\",\"N人\",\"N条\",\"最多N个\",\"TOP N\",\"前几名\"等数量需求时设置。默认为null表示不限制数量。\n\n"
+                    "请严格按照以下JSON格式输出，不要输出任何其他内容：\n"
+                    '{"conditions": [{"field": "字段名", "operator": "操作符", "value": "值或数组", "description": "条件中文说明"}], "logic": "AND或OR", "limit": 数量或null, "limit_percent": 百分比或null, "description": "筛选逻辑的中文解释"}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"自然语言筛选条件：{natural_language}\n\n请输出JSON格式的筛选规则：",
+            },
+        ]
+        try:
+            raw = await self._chat(messages, temperature=0.1, max_tokens=1024)
+            result = self._extract_json(raw)
+            return {
+                "conditions": result.get("conditions", []),
+                "logic": result.get("logic", "AND"),
+                "limit": result.get("limit", None),
+                "limit_percent": result.get("limit_percent", None),
+                "description": result.get("description", ""),
+            }
+        except Exception as e:
+            logger.warning("llm_parse_filter_error", error=str(e))
+            return {
+                "conditions": [],
+                "logic": "AND",
+                "description": "解析失败",
+                "error": f"解析失败: {str(e)}",
+            }
 
 
 _real_llm_instance: RealLLMService | None = None

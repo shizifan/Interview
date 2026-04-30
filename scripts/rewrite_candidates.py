@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+p = 'web/src/pages/hr/Candidates.tsx'
+new_content = '''import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Tag, Input, Button, Modal, Select, message, Space } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
@@ -135,3 +136,7 @@ export default function Candidates() {
     </div>
   );
 }
+'''
+with open(p, 'w', encoding='utf-8') as f:
+    f.write(new_content)
+print('OK')

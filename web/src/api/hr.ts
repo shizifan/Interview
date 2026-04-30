@@ -92,6 +92,45 @@ export async function inviteCandidate(candidateId: number, jobId: number) {
   return res.data.data;
 }
 
+export interface FilterRule {
+  conditions: Array<{
+    field: string;
+    operator: string;
+    value: string | number | string[];
+    description: string;
+  }>;
+  logic: string;
+  limit?: number;
+  limit_percent?: number;
+  description: string;
+}
+
+export interface ParseFilterResponse {
+  conditions: FilterRule['conditions'];
+  logic: string;
+  limit?: number;
+  limit_percent?: number;
+  description: string;
+  error?: string;
+}
+
+export async function parseFilterRule(naturalLanguage: string) {
+  const res = await request.post<ApiResponse<ParseFilterResponse>>(
+    '/hr/candidates/intelligent-filter/parse',
+    null,
+    { params: { natural_language: naturalLanguage } }
+  );
+  return res.data.data;
+}
+
+export async function executeIntelligentFilter(filterRules: FilterRule) {
+  const res = await request.post<ApiResponse<{ items: Candidate[]; total: number }>>(
+    '/hr/candidates/intelligent-filter/execute',
+    filterRules
+  );
+  return res.data.data;
+}
+
 // 面试记录
 export async function getInterviews(page = 1, pageSize = 20) {
   const res = await request.get<ApiResponse<PaginatedData<Interview>>>('/hr/interviews', {

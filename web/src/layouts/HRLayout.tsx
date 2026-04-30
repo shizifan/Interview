@@ -7,6 +7,7 @@ import {
   TrophyOutlined,
   SolutionOutlined,
   LogoutOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
@@ -17,6 +18,7 @@ const menuItems = [
   { key: '/hr', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/hr/jobs', icon: <FileTextOutlined />, label: '岗位管理' },
   { key: '/hr/candidates', icon: <TeamOutlined />, label: '候选人管理' },
+  { key: '/hr/intelligent-filter', icon: <RobotOutlined />, label: '智能筛选' },
   { key: '/hr/interviews', icon: <SolutionOutlined />, label: '面试记录' },
   { key: '/hr/score-pool', icon: <TrophyOutlined />, label: '评分池' },
   { key: '/hr/settings', icon: <SettingOutlined />, label: '系统设置' },
